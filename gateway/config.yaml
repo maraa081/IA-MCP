@@ -1,0 +1,52 @@
+# =============================================================================
+# Gateway LiteLLM : reverse proxy OpenAI-compatible devant Ollama.
+#
+# Role dans l'architecture : c'est le POINT D'ENTREE UNIQUE vers les modeles.
+# Les applications (orchestrateur, serveurs MCP) ne parlent jamais directement
+# a Ollama : elles parlent a la gateway. Avantages en entreprise :
+#   - un seul endroit pour les cles, les quotas, les logs et le cout ;
+#   - on peut changer de moteur (Ollama -> vLLM -> API cloud) sans toucher
+#     au code applicatif, en modifiant seulement ce fichier ;
+#   - les "alias" de modeles decouplent le nom logique du nom physique.
+# =============================================================================
+
+model_list:
+
+  # Alias "planner" : modele rapide, utilise pour le choix des outils.
+  # temperature basse : on veut une decision stable, pas de creativite.
+  - model_name: planner
+    litellm_params:
+      model: ollama_chat/qwen3.5:4b
+      api_base: http://127.0.0.1:11434
+      temperature: 0.1
+      num_ctx: 8192
+    model_info:
+      description: "Choix d'outils (function calling), rapide, CPU-friendly"
+
+  # Alias "writer" : modele utilise pour rediger (resume, documentation).
+  # temperature plus haute : on veut une redaction fluide.
+  - model_name: writer
+    litellm_params:
+      model: ollama_chat/qwen3.5:4b
+      api_base: http://127.0.0.1:11434
+      temperature: 0.4
+      num_ctx: 16384
+    model_info:
+      description: "Redaction : resumes et documentation technique"
+
+litellm_settings:
+  # On n'expose pas les erreurs brutes des moteurs vers les clients.
+  drop_params: true
+  request_timeout: 300
+  num_retries: 1
+
+general_settings:
+  # La gateway exige une cle sur chaque appel /v1/*.
+  # Deux niveaux : cle maitre (admin) et cles de service (applications).
+  master_key: os.environ/GATEWAY_MASTER_KEY
+  database_url: null          # pas de base : labo, cle stockee en memoire
+  # Les cles de service sont declarees comme "virtual keys" en base ; pour le
+  # labo on utilise la cle maitre des services via la variable GATEWAY_API_KEY.
+
+# Journalisation : utile pour tracer les appels modeles dans un SIEM.
+# (en production : log JSON vers stdout, collecte par l'agent de log)

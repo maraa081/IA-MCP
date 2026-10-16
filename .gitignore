@@ -1,0 +1,15 @@
+# Environnements Python
+.venv/
+.venv-gateway/
+__pycache__/
+*.py[cod]
+
+# Secrets et materiel cryptographique : ne JAMAIS versionner
+.env
+config/keys/
+config/revoked_tokens.json
+
+# Artefacts d'execution
+var/
+*.log
+.pytest_cache/

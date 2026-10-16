@@ -1,0 +1,4 @@
+# Dependances des serveurs MCP.
+# Le SDK officiel fournit le serveur (transport streamable HTTP) et le client.
+mcp>=2.0,<3
+httpx>=0.27

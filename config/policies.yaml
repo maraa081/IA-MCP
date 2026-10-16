@@ -1,0 +1,44 @@
+# =============================================================================
+# GPO applicative : qui a le droit d'appeler quel outil MCP, et sous quelles
+# contraintes. C'est LE fichier que l'on edite quand on veut changer les droits
+# sans redeployer de code.
+#
+# Principe de securite fondamental : le LLM ne decide JAMAIS des droits.
+# Il *propose* des appels d'outils ; ce fichier est la seule source de verite
+# pour savoir si ces appels sont autorises (deny by default).
+# =============================================================================
+
+version: 1
+
+# --- Regles par role ---------------------------------------------------------
+# Le role provient du claim "roles" du JWT. Un utilisateur peut porter plusieurs
+# roles : les droits sont alors l'UNION des roles.
+roles:
+
+  analyst:
+    description: "Analyste : peut resumer un texte et genere de la documentation technique."
+    tools:
+      summarize_text:
+        max_input_chars: 20000        # taille max du champ "text"
+        max_calls_per_request: 1      # nb d'appels a cet outil par requete
+        rate_limit: { requests: 30, window_seconds: 60 }
+      code_to_technical_doc:
+        max_input_chars: 12000
+        max_calls_per_request: 1
+        # Liste blanche des frameworks de documentation utilisables.
+        allowed_frameworks: [diataxis, arc42, c4, madr, sphinx]
+        rate_limit: { requests: 10, window_seconds: 60 }
+
+  reader:
+    description: "Lecture seule : uniquement le resume, contenu plus court."
+    tools:
+      summarize_text:
+        max_input_chars: 8000
+        max_calls_per_request: 1
+        rate_limit: { requests: 30, window_seconds: 60 }
+
+# --- Plafonds globaux (appliques avant les regles par role) ------------------
+limits:
+  max_prompt_chars: 40000                 # taille max du message utilisateur
+  max_tool_calls_per_request: 3           # garde-fou anti-boucle
+  allowed_models: [planner, writer]       # alias de modeles autorises cote gateway

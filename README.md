@@ -1,0 +1,269 @@
+# Orchestrateur MCP (labo)
+
+Mini infrastructure d'orchestration d'outils par un modele de langage local, avec
+authentification JWT, politique de droits (GPO) et serveurs MCP.
+
+Objectif : comprendre et manipuler chaque brique d'une architecture que l'on peut
+transposer en entreprise, sans dependre d'un service cloud.
+
+```
+Utilisateur
+    |
+    |  POST /v1/chat   (jeton JWT dans l'en-tete Authorization)
+    v
++-----------------------------+        +--------------------------+
+|  Orchestrateur FastAPI      |  HTTP  |  Gateway LiteLLM :4000   |
+|  :8080                      |------->|  (alias planner/writer)  |
+|                             |        +------------+-------------+
+|  1. verification du JWT     |                     |
+|  2. politique (GPO)         |                     v
+|  3. choix des outils        |        +--------------------------+
+|  4. appel des serveurs MCP  |        |  Ollama :11434           |
+|  5. synthese + audit        |        |  qwen3.5:4b              |
++------+---------------+------+        +--------------------------+
+       |               |
+       | MCP           | MCP
+       v               v
++-------------+  +--------------+
+| summarizer  |  | codedoc      |
+| :9101       |  | :9102        |
+| summarize_  |  | code_to_     |
+| text        |  | technical_doc|
++-------------+  +--------------+
+```
+
+## Ce que fait ce labo
+
+Un utilisateur s'authentifie, puis envoie une demande en langage naturel
+("resume moi ce document", "documente ce code"). L'orchestrateur :
+
+1. verifie le jeton JWT (signature RS256, expiration, audience, revocation) ;
+2. calcule les droits de l'utilisateur a partir de `config/policies.yaml` ;
+3. demande a un modele local de choisir les outils utiles, en ne lui montrant
+   que les outils autorises ;
+4. revalide chaque appel propose, puis l'execute via le protocole MCP ;
+5. redige la reponse finale et ecrit une trace d'audit complete.
+
+Le modele propose, le code decide. C'est le principe central du projet.
+
+## Composants et ports
+
+| Composant | Port | Role | Code |
+| --- | --- | --- | --- |
+| Ollama | 11434 | Moteur d'inference local | (externe) |
+| Gateway LiteLLM | 4000 | Point d'entree unique des modeles, alias et quotas | `gateway/config.yaml` |
+| Serveur MCP `summarizer` | 9101 | Outil `summarize_text` | `mcp_servers/summarizer/server.py` |
+| Serveur MCP `codedoc` | 9102 | Outil `code_to_technical_doc` | `mcp_servers/codedoc/server.py` |
+| Orchestrateur | 8080 | Authentification, GPO, planification, synthese | `orchestrator/app/` |
+
+Un seul utilisateur de demonstration (`demo`, role `analyst`) et deux outils,
+comme demande. Tout est prevu pour en ajouter sans toucher au coeur du code.
+
+## Demarrage
+
+```bash
+./scripts/bootstrap.sh     # environnements Python, cles JWT, .env, modeles Ollama
+./scripts/up.sh            # Ollama, gateway, serveurs MCP, orchestrateur
+./scripts/demo.sh          # parcours complet commente, de bout en bout
+./scripts/down.sh          # arret (--all pour arreter aussi Ollama)
+```
+
+L'API est documentee automatiquement (OpenAPI) sur <http://127.0.0.1:8080/docs>.
+
+Comptez plusieurs dizaines de secondes par appel de modele : l'inference se fait
+sur CPU.
+
+### Essai manuel en trois commandes
+
+```bash
+# 1. obtenir un jeton
+TOKEN=$(curl -s -X POST http://127.0.0.1:8080/auth/token \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"demo","password":"changeme-lab"}' | jq -r .access_token)
+
+# 2. voir ses droits
+curl -s http://127.0.0.1:8080/auth/me -H "Authorization: Bearer $TOKEN" | jq
+
+# 3. poser une demande
+curl -s -X POST http://127.0.0.1:8080/v1/chat -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Resume moi ce document : <collez votre texte>"}' | jq '{answer, tools_used}'
+```
+
+## Les deux outils MCP
+
+### `summarize_text`
+
+Resume un texte en `max_sentences` phrases, dans un style donne
+(`neutral`, `bullets`, `executive`, `technical`).
+
+### `code_to_technical_doc`
+
+Transforme du code source en documentation technique structuree par un framework
+etabli, choisi par l'appelant :
+
+| Framework | Origine | Usage typique |
+| --- | --- | --- |
+| `diataxis` | diataxis.fr | Documentation utilisateur (tutoriel, guide, reference, explication) |
+| `arc42` | arc42.org | Documentation d'architecture en 12 sections |
+| `c4` | c4model.com | Architecture par niveaux de zoom, avec diagrammes Mermaid |
+| `madr` | adr.github.io | Trace de decision technique |
+| `sphinx` | Sphinx / rST | Documentation integree au code |
+
+Le framework est impose au modele section par section, et le serveur verifie
+ensuite dans le texte produit quelles sections manquent (`missing_sections`).
+Le modele ne s'auto-certifie pas.
+
+Ajouter un framework = ajouter une entree dans
+`mcp_servers/codedoc/frameworks.py`. Aucun autre fichier a modifier.
+
+## Securite : quatre couches
+
+1. **Authentification** : JWT RS256, claims obligatoires (`iss`, `aud`, `sub`,
+   `jti`, `exp`, `nbf`, `iat`), liste blanche d'algorithmes, revocation par
+   `jti`, cle publique publiee en JWKS.
+2. **Autorisation** : GPO dans `config/policies.yaml`. Refus par defaut, quota
+   d'appels, taille d'entree maximale, liste blanche de frameworks, limitation
+   de debit par utilisateur.
+3. **Isolation du modele** : le modele ne recoit que les outils autorises, et
+   chaque appel est revalide avant execution. Un prompt qui demande un outil
+   interdit n'obtient rien : le modele ne peut pas accorder un droit qu'il n'a
+   pas.
+4. **Traçabilite** : journal d'audit JSON Lines (`var/logs/audit.jsonl`) avec
+   l'identite, les outils proposes, executes, refuses, la raison du refus et la
+   duree. Aucun contenu de document, seulement une empreinte.
+
+Detail complet : [docs/security.md](docs/security.md).
+
+## Guide de lecture du code
+
+L'ordre ci-dessous suit le trajet d'une requete. C'est l'ordre de lecture
+conseille.
+
+| Fichier | Ce qu'on y apprend |
+| --- | --- |
+| `orchestrator/app/config.py` | Tout ce qui est parametrable, et rien en dur |
+| `orchestrator/app/container.py` | Comment les briques sont assemblees et arretees |
+| `orchestrator/app/pipeline.py` | **Le coeur** : les 6 etapes d'une requete |
+| `orchestrator/app/security/jwt_service.py` | Verification d'un JWT, claims, revocation |
+| `orchestrator/app/policy/engine.py` | La GPO : qui a le droit a quoi, et pourquoi refuser |
+| `orchestrator/app/llm/planner.py` | Comment le modele choisit ses outils (2 strategies) |
+| `orchestrator/app/mcp/client.py` | Comment un outil MCP est appele |
+| `orchestrator/app/mcp/registry.py` | Comment les outils sont decouverts et decrits |
+| `orchestrator/app/audit.py` | Ce qu'on trace, et ce qu'on ne trace pas |
+| `mcp_servers/*/server.py` | Un serveur d'outil, en 80 lignes lisibles |
+
+## Diagrammes
+
+| Diagramme | Fichier |
+| --- | --- |
+| Sequence d'une demande | [docs/uml/01-sequence-demande.md](docs/uml/01-sequence-demande.md) |
+| Diagramme de classes | [docs/uml/02-classes.md](docs/uml/02-classes.md) |
+| Diagramme d'activite (choix et autorisation des outils) | [docs/uml/03-activite-outils.md](docs/uml/03-activite-outils.md) |
+| Deploiement | [docs/uml/04-deploiement.md](docs/uml/04-deploiement.md) |
+| Parcours commente d'une requete reelle | [docs/parcours-requete.md](docs/parcours-requete.md) |
+
+Les diagrammes sont en Mermaid : ils s'affichent directement sur GitHub et se
+modifient comme du texte.
+
+## Tests
+
+```bash
+./.venv/bin/python -m pytest
+```
+
+51 tests couvrent : la chaine JWT (jeton expire, mal signe, mauvaise audience,
+confusion d'algorithme, `alg=none`, revocation), le moteur de politiques (refus
+par defaut, quotas, frameworks, debit), le pipeline complet avec des doublures
+reseau (le modele ne voit que les outils autorises, un appel hors droits est
+refuse a l'execution, un echec d'outil n'est pas un succes, le journal d'audit
+est complet), les schemas d'outils exposes au modele et le planificateur
+(echappatoire de reponse directe, choix impose).
+
+Les tests ne dependent d'aucun service en cours d'execution : les deux frontieres
+reseau (gateway LiteLLM et serveurs MCP) sont remplacees par des doublures. Un
+test qui passe ou echoue selon ce qui tourne sur la machine ne teste rien.
+
+## Quatre defauts trouves en executant la demonstration
+
+Ces quatre points n'etaient pas visibles a la lecture du code. Ils viennent d'un
+premier parcours complet, et chacun a donne lieu a une correction et a un test.
+C'est ce que la demonstration est censee produire.
+
+**1. Le modele repondait lui-meme au lieu d'utiliser l'outil.** Sur "resume moi
+ce document", le planificateur produisait un resume de sa propre initiative :
+`tools_used` restait vide, l'appel MCP n'avait pas lieu. Consequences : aucune
+trace d'outil, aucune garantie de format, et le resultat ne passait pas par le
+service cense le produire.
+
+Premiere tentative : durcir le prompt du planificateur. Insuffisant, le
+comportement s'est reproduit. La cause reelle est plus subtile : "ne rien
+appeler" est un choix implicite, et un petit modele ne le fait pas correctement.
+
+Correction retenue, architecturale : rendre le choix explicite. Un outil virtuel
+`respond_directly` est ajoute a la liste transmise au modele, et le choix est
+impose (`tool_choice: required`). Le modele doit donc trancher : appeler un outil,
+ou repondre. Mesure apres correction : sur une demande de resume il appelle
+`summarize_text` (17 s), sur une salutation il repond directement sans toucher
+aux outils. Cet outil virtuel n'est jamais execute : c'est un signal de decision,
+traduit en reponse par le planificateur.
+
+**2. Le modele devinait les valeurs autorisees.** Les schemas d'outils
+declaraient `framework`, `style` et `audience` comme de simples chaines de
+caracteres : le modele a produit `audience: "technicien et developpeur"`, hors
+liste, et l'appel a echoue. Correction : ces parametres sont declares avec des
+types enumeres (`Literal`), donc le schema transmet la liste des valeurs valides
+et le modele les voit au lieu de les inventer. Le test
+`test_le_schema_du_framework_liste_les_valeurs_autorisees` verrouille le
+comportement.
+
+**3. Un outil en erreur etait compte comme un succes.** L'outil refusait ses
+arguments et repondait `{"error": "..."}`, ce que l'orchestrateur interpretait
+comme un resultat valide : l'appel apparaissait dans `tools_used` et l'utilisateur
+recevait une reponse confuse. Correction : toute erreur, qu'elle vienne du
+protocole MCP ou du contenu de la reponse, marque l'appel comme echoue, le sort
+de `tools_used`, et l'explique a l'utilisateur en distinguant un refus de droits
+d'une erreur d'execution.
+
+**4. L'outil renvoyait un resultat vide, sans erreur.** Une fois les appels
+correctement routes, le resume revenait avec `summary: ""`. Mesure : sans
+desactivation de la phase de reflexion, un modele de raisonnement a qui l'on donne
+360 tokens de budget les consomme entierement en raisonnement interne et rend un
+contenu **vide** (28 s pour rien, 1330 caracteres de reflexion non exploites).
+Avec `OLLAMA_DISABLE_THINKING=true` : 336 caracteres de resume en 5 s.
+Correction appliquee aux deux cotes (orchestrateur et serveurs MCP), plus une
+erreur explicite des qu'un contenu vide est detecte : une panne silencieuse est
+plus couteuse qu'un echec.
+
+### Lecons a garder
+
+- un schema d'outil est un contrat avec le modele : tout ce qui n'y est pas
+declare sera devine ;
+- un resultat d'outil doit etre verifie, jamais suppose bon ;
+- un modele doit toujours avoir un moyen explicite de ne rien faire ;
+- une reponse vide n'est pas un succes, et la cause la plus frequente est un
+  budget de tokens consomme par la phase de reflexion.
+
+## Ce qui changerait en production
+
+| Element | En labo | En production |
+| --- | --- | --- |
+| Emission des jetons | `POST /auth/token` de demonstration | Keycloak / Entra ID / Okta ; l'orchestrateur ne fait que verifier |
+| Revocation | fichier JSON | Redis ou base, avec TTL egal a la duree du jeton |
+| Cle de service vers la gateway | cle maitresse LiteLLM | base PostgreSQL + une cle virtuelle par service (quotas, modeles autorises) |
+| Sessions MCP | une par appel | pool de sessions par serveur |
+| Transport | HTTP sur `127.0.0.1` | TLS, mTLS entre services, reseau segmente |
+| Limitation de debit | en memoire | passerelle d'API (une seule instance, resistante a l'echelle) |
+| Politique | fichier YAML | OPA / Rego, publiee par le service d'identite |
+| Audit | fichier local | sortie JSON vers le SIEM |
+| Moteur | Ollama sur CPU | vLLM sur GPU, ou API externe ; seule la gateway change |
+
+La colonne de gauche est volontairement simple a lire. La colonne de droite est
+ce qui fait la difference entre une maquette et un service en production.
+
+## Prerequis
+
+- Python 3.11 ou plus (teste sur 3.12)
+- Ollama avec le modele `qwen3.5:4b` (recupere par `bootstrap.sh`)
+- `curl` et `jq` pour les scripts de demonstration
+- Pas de GPU necessaire : tout tourne sur CPU

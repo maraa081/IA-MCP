@@ -1,0 +1,2 @@
+# Gateway LiteLLM (proxy). Environnement Python separe : voir scripts/bootstrap.sh
+litellm[proxy]>=1.44

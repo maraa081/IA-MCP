@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+# Permet d'ecrire "async def test_..." sans decorateur : moins de bruit dans les tests.
+asyncio_mode = "auto"
+testpaths = ["orchestrator/tests"]
+pythonpath = ["."]
+addopts = "-q"
