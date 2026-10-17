@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     environment: Literal["lab", "prod"] = "lab"
     log_level: str = "INFO"
 
+    # Interface d'ecoute de l'API.
+    #   127.0.0.1 : accessible uniquement depuis la machine (le plus sur, et le
+    #               seul choix raisonnable en production derriere un reverse proxy)
+    #   0.0.0.0   : accessible depuis le reseau. En labo sous WSL, c'est ce qu'il
+    #               faut pour ouvrir l'interface depuis le navigateur Windows.
+    # Attention : l'API exigera toujours un jeton, mais elle devient joignable
+    # depuis le reseau local. A remettre sur 127.0.0.1 apres les essais.
+    orchestrator_host: str = "127.0.0.1"
+    orchestrator_port: int = 8080
+
     # --- Gateway LLM ---------------------------------------------------------
     gateway_url: str = "http://127.0.0.1:4000"
     gateway_api_key: str = "sk-lab-internal-0001"

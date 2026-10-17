@@ -80,6 +80,60 @@ L'API est documentee automatiquement (OpenAPI) sur <http://127.0.0.1:8080/docs>.
 Comptez plusieurs dizaines de secondes par appel de modele : l'inference se fait
 sur CPU.
 
+### Depuis un navigateur
+
+L'API sert elle-meme une page de prompt : un seul fichier HTML, sans dependance
+ni etape de build.
+
+```
+http://localhost:8080/ui      page de prompt
+http://localhost:8080/docs    documentation interactive (bouton Authorize)
+http://localhost:8080/        redirige vers /ui
+```
+
+La page permet de s'authentifier, de voir ses droits effectifs, d'envoyer un
+prompt, et de lire la reponse **avec la trace** : outils appeles, decision de la
+GPO, durees, refus, duree totale.
+
+#### Le piege qui provoque un "not found"
+
+Par defaut l'orchestrateur ecoute sur `127.0.0.1`, donc uniquement depuis
+l'interieur de WSL. Depuis le navigateur Windows, il n'y a alors rien sur ce
+port : la page est introuvable.
+
+Il faut ecouter sur toutes les interfaces, dans `.env` :
+
+```
+ORCHESTRATOR_HOST=0.0.0.0
+```
+
+puis redemarrer la pile (`./scripts/up.sh`). WSL2 redirige ensuite le `localhost`
+de Windows vers WSL automatiquement : `http://localhost:8080/ui` fonctionne sans
+regle de pare-feu ni redirection de port.
+
+L'adresse reseau de WSL fonctionne aussi, mais elle change a chaque redemarrage :
+
+```bash
+hostname -I | awk '{print $1}'    # exemple : 172.31.13.28
+```
+
+Deux precautions : l'API reste protegee par un jeton, mais elle devient joignable
+depuis le reseau local ; et il faut remettre `ORCHESTRATOR_HOST=127.0.0.1` (ou
+placer l'orchestrateur derriere un reverse proxy HTTPS) une fois les essais
+termines.
+
+#### Voir la GPO refuser quelque chose, depuis la page
+
+La page s'authentifie avec les identifiants de demonstration, qui portent le role
+`analyst`. Pour tester un role moins permissif, coller un jeton d'un autre role :
+
+```bash
+./.venv/bin/python scripts/mint_token.py --sub lecteur --roles reader
+```
+
+puis ouvrir « Coller un jeton existant » dans la page, et demander une
+documentation de code : `documenter_code` n'est pas accorde au role `reader`.
+
 ### Tester en tapant un prompt
 
 Le plus simple pour voir l'infrastructure travailler :
@@ -260,8 +314,8 @@ modifient comme du texte.
 Deux niveaux, complementaires :
 
 ```bash
-./.venv/bin/python -m pytest      # logique, en isolation (68 tests, aucun service requis)
-./scripts/test-infra.sh           # la pile reelle est-elle branchee ? (27 controles, rapide)
+./.venv/bin/python -m pytest      # logique, en isolation (73 tests, aucun service requis)
+./scripts/test-infra.sh           # la pile reelle est-elle branchee ? (30 controles, rapide)
 ./scripts/test-infra.sh --full    # ajoute un appel complet au modele (lent sur CPU)
 ```
 
@@ -304,13 +358,15 @@ et le dit explicitement plutot que d'afficher des echecs en cascade.
 
 ### Ce que couvrent les tests unitaires
 
-Les 68 tests couvrent : la chaine JWT (jeton expire, mal signe, mauvaise audience,
+Les 73 tests couvrent : la chaine JWT (jeton expire, mal signe, mauvaise audience,
 confusion d'algorithme, `alg=none`, revocation), le moteur de politiques (refus
 par defaut, quotas, frameworks, debit), le pipeline complet avec des doublures
 reseau (le modele ne voit que les outils autorises, un appel hors droits est
 refuse a l'execution, un echec d'outil n'est pas un succes, le journal d'audit
-est complet), les schemas d'outils exposes au modele et le planificateur
-(echappatoire de reponse directe, choix impose).
+est complet), les schemas d'outils exposes au modele, le planificateur
+(echappatoire de reponse directe, choix impose), la base de code (indexation
+incrementale, resolution des references, recherche) et l'interface servie
+(page de prompt, redirection, absence de secret dans le HTML).
 
 Les tests ne dependent d'aucun service en cours d'execution : les deux frontieres
 reseau (gateway LiteLLM et serveurs MCP) sont remplacees par des doublures. Un

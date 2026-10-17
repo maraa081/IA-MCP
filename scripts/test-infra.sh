@@ -113,6 +113,21 @@ fi
   && ok "l'orchestrateur joint la gateway" \
   || ko "l'orchestrateur ne joint pas la gateway"
 
+# Page de prompt : c'est le moyen le plus simple de tester depuis un navigateur.
+CODE_UI=$(code "$ORCHESTRATOR_URL/ui")
+[[ "$CODE_UI" == "200" ]] \
+  && ok "page de prompt servie (/ui)" \
+  || ko "page de prompt indisponible (/ui -> $CODE_UI)"
+CODE_RACINE=$(code "$ORCHESTRATOR_URL/")
+[[ "$CODE_RACINE" == "307" || "$CODE_RACINE" == "308" ]] \
+  && ok "la racine redirige vers la page de prompt" \
+  || ko "racine : redirection attendue, obtenu $CODE_RACINE"
+
+CODE_DOCS=$(code "$ORCHESTRATOR_URL/docs")
+[[ "$CODE_DOCS" == "200" ]] \
+  && ok "documentation interactive disponible (/docs)" \
+  || ko "documentation indisponible (/docs -> $CODE_DOCS)"
+
 for serveur in $(echo "$HEALTH" | jq -r '.mcp_servers | keys[]'); do
   etat=$(echo "$HEALTH" | jq -r ".mcp_servers[\"$serveur\"]")
   [[ "$etat" == "true" ]] \

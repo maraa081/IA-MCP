@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orchestrateur MCP - page de test</title>
+<style>
+  :root {
+    --fond: #0d1117;
+    --carte: #161b22;
+    --bord: #30363d;
+    --texte: #e6edf3;
+    --doux: #8b949e;
+    --accent: #2f81f7;
+    --ok: #3fb950;
+    --ko: #f85149;
+    --attention: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--fond); color: var(--texte);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .conteneur { max-width: 940px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--doux); font-weight: 600; }
+  p.chaine { color: var(--doux); font-size: 13px; margin: 0 0 20px; }
+  .carte {
+    background: var(--carte); border: 1px solid var(--bord);
+    border-radius: 10px; padding: 18px; margin-bottom: 16px;
+  }
+  label { display: block; font-size: 13px; color: var(--doux); margin-bottom: 4px; }
+  input, textarea, select {
+    width: 100%; padding: 9px 11px; background: #0d1117; color: var(--texte);
+    border: 1px solid var(--bord); border-radius: 7px; font: inherit;
+  }
+  textarea { min-height: 130px; resize: vertical; font-family: ui-monospace, monospace; font-size: 13px; }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  .ligne { display: flex; gap: 12px; flex-wrap: wrap; }
+  .ligne > div { flex: 1 1 200px; }
+  button {
+    padding: 9px 16px; background: var(--accent); color: #fff; border: 0;
+    border-radius: 7px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { background: #21262d; color: var(--doux); cursor: not-allowed; }
+  button.secondaire { background: #21262d; color: var(--texte); border: 1px solid var(--bord); }
+  .ligne-boutons { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+  .etat { font-size: 13px; }
+  .etat.ok { color: var(--ok); }
+  .etat.ko { color: var(--ko); }
+  .etat.attente { color: var(--attention); }
+  pre {
+    background: #010409; border: 1px solid var(--bord); border-radius: 7px;
+    padding: 12px; overflow-x: auto; font-size: 13px; margin: 0;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--bord); }
+  th { color: var(--doux); font-weight: 600; }
+  .puce { display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: 12px; }
+  .puce.allowed { background: #1f6feb33; color: #79c0ff; }
+  .puce.denied { background: #f8514933; color: #ff7b72; }
+  .puce.error { background: #d2992233; color: #e3b341; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--doux); font-size: 13px; margin-bottom: 12px; }
+  .meta b { color: var(--texte); font-weight: 600; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--doux); font-size: 13px; }
+  .cache { display: none; }
+  .aide { font-size: 12px; color: var(--doux); margin-top: 6px; }
+  ul.outils { margin: 8px 0 0; padding-left: 18px; font-size: 13px; columns: 2; }
+</style>
+</head>
+<body>
+<div class="conteneur">
+  <h1>Orchestrateur MCP</h1>
+  <p class="chaine">
+    jeton JWT &rarr; politique de droits (GPO) &rarr; choix des outils par le modele
+    &rarr; serveurs MCP &rarr; gateway LiteLLM &rarr; Ollama
+  </p>
+
+  <!-- 1. Authentification -->
+  <div class="carte">
+    <h2>1. Authentification</h2>
+    <div class="ligne">
+      <div>
+        <label for="utilisateur">Identifiant</label>
+        <input id="utilisateur" autocomplete="username">
+      </div>
+      <div>
+        <label for="motdepasse">Mot de passe</label>
+        <input id="motdepasse" type="password" autocomplete="current-password">
+      </div>
+    </div>
+    <div class="ligne-boutons">
+      <button id="bouton-jeton">Obtenir un jeton</button>
+      <span id="etat-jeton" class="etat">non authentifie</span>
+    </div>
+    <div class="aide">
+      Identifiants de demonstration : voir <code>DEV_USERNAME</code> et
+      <code>DEV_PASSWORD</code> dans le fichier <code>.env</code> du projet.
+      Aucun mot de passe n'est enregistre par cette page.
+    </div>
+    <details>
+      <summary>Coller un jeton existant (cree par <code>scripts/mint_token.py</code>)</summary>
+      <div style="margin-top:10px">
+        <textarea id="jeton-colle" placeholder="eyJhbGciOiJSUzI1NiIs..." style="min-height:80px"></textarea>
+        <div class="ligne-boutons">
+          <button id="bouton-jeton-colle" class="secondaire">Utiliser ce jeton</button>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- 2. Droits -->
+  <div class="carte cache" id="carte-droits">
+    <h2>2. Droits effectifs</h2>
+    <div id="droits"></div>
+  </div>
+
+  <!-- 3. Prompt -->
+  <div class="carte">
+    <h2>3. Demande</h2>
+    <label for="message">Prompt</label>
+    <textarea id="message" placeholder="Exemple : Resume le fichier orchestrator/app/policy/engine.py de la base de code."></textarea>
+    <div class="ligne-boutons">
+      <button id="bouton-envoyer" disabled>Envoyer</button>
+      <label style="display:flex; align-items:center; gap:6px; margin:0; width:auto">
+        <input type="checkbox" id="sans-synthese" style="width:auto"> sans synthese (plus rapide)
+      </label>
+      <span id="etat-envoi" class="etat"></span>
+    </div>
+    <div class="aide">
+      Comptez 30 secondes a plusieurs minutes : l'inference tourne sur CPU.
+    </div>
+  </div>
+
+  <!-- 4. Reponse -->
+  <div class="carte cache" id="carte-reponse">
+    <h2>4. Reponse</h2>
+    <div class="meta" id="meta-reponse"></div>
+    <pre id="texte-reponse"></pre>
+    <details open>
+      <summary>Trace de la decision</summary>
+      <div id="trace" style="margin-top:10px"></div>
+    </details>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+let jeton = '';
+
+function afficherEtat(element, texte, classe) {
+  element.className = 'etat ' + (classe || '');
+  element.textContent = texte;
+}
+
+// --- 1. Authentification -----------------------------------------------------
+
+async function appeler(chemin, options) {
+  const reponse = await fetch(chemin, options);
+  let corps = null;
+  try { corps = await reponse.json(); } catch (erreur) { corps = null; }
+  return { code: reponse.status, corps };
+}
+
+async function definirJeton(nouveauJeton, origine) {
+  jeton = nouveauJeton;
+  afficherEtat($('etat-jeton'), 'jeton obtenu (' + origine + '), verification...', 'attente');
+  const { code, corps } = await appeler('/auth/me', { headers: { Authorization: 'Bearer ' + jeton } });
+  if (code !== 200) {
+    afficherEtat($('etat-jeton'), 'jeton refuse (' + code + ')', 'ko');
+    jeton = '';
+    return;
+  }
+  afficherEtat($('etat-jeton'), 'authentifie : ' + corps.sub + ' [' + corps.roles.join(', ') + ']', 'ok');
+  afficherDroits(corps);
+  $('bouton-envoyer').disabled = false;
+}
+
+function afficherDroits(droits) {
+  $('carte-droits').classList.remove('cache');
+  const outils = Object.keys(droits.tools || {});
+  const lignes = outils.map((nom) => {
+    const regle = droits.tools[nom];
+    const limites = [];
+    if (regle.max_input_chars) limites.push('entree max ' + regle.max_input_chars + ' car.');
+    if (regle.max_calls_per_request) limites.push(regle.max_calls_per_request + ' appel(s)/requete');
+    if (regle.allowed_frameworks) limites.push('frameworks : ' + regle.allowed_frameworks.join(', '));
+    if (regle.rate_limit) limites.push(regle.rate_limit.requests + '/' + regle.rate_limit.window_seconds + 's');
+    return '<tr><td><code>' + nom + '</code></td><td>' + limites.join(' &middot; ') + '</td></tr>';
+  }).join('');
+  $('droits').innerHTML =
+    '<div class="meta"><div>porteur <b>' + droits.sub + '</b></div>' +
+    '<div>roles <b>' + droits.roles.join(', ') + '</b></div>' +
+    '<div>outils autorises <b>' + outils.length + '</b></div>' +
+    '<div>message max <b>' + droits.limits.max_prompt_chars + ' car.</b></div></div>' +
+    '<table><thead><tr><th>Outil</th><th>Contraintes</th></tr></thead><tbody>' + lignes + '</tbody></table>';
+}
+
+$('bouton-jeton').addEventListener('click', async () => {
+  afficherEtat($('etat-jeton'), 'demande en cours...', 'attente');
+  const { code, corps } = await appeler('/auth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: $('utilisateur').value, password: $('motdepasse').value })
+  });
+  if (code !== 200) {
+    afficherEtat($('etat-jeton'), 'echec : ' + (corps && corps.detail ? corps.detail : code), 'ko');
+    return;
+  }
+  await definirJeton(corps.access_token, 'identifiants');
+});
+
+$('bouton-jeton-colle').addEventListener('click', async () => {
+  const valeur = $('jeton-colle').value.trim();
+  if (!valeur) { afficherEtat($('etat-jeton'), 'aucun jeton colle', 'ko'); return; }
+  await definirJeton(valeur, 'jeton colle');
+});
+
+// --- 2. Envoi du prompt ------------------------------------------------------
+
+$('bouton-envoyer').addEventListener('click', async () => {
+  const message = $('message').value.trim();
+  if (!message) { afficherEtat($('etat-envoi'), 'le prompt est vide', 'ko'); return; }
+
+  $('bouton-envoyer').disabled = true;
+  const debut = Date.now();
+  afficherEtat($('etat-envoi'), 'en cours... (' + message.length + ' caracteres envoyes)', 'attente');
+
+  // Petit compteur pour ne pas laisser l'utilisateur sans repère pendant l'attente.
+  const minuteur = setInterval(() => {
+    const secondes = Math.round((Date.now() - debut) / 1000);
+    afficherEtat($('etat-envoi'), 'en cours... ' + secondes + ' s', 'attente');
+  }, 1000);
+
+  let resultat;
+  try {
+    resultat = await appeler('/v1/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + jeton },
+      body: JSON.stringify({ message: message, synthesize: $('sans-synthese').checked ? false : null })
+    });
+  } catch (erreur) {
+    clearInterval(minuteur);
+    afficherEtat($('etat-envoi'), 'erreur reseau : ' + erreur.message, 'ko');
+    $('bouton-envoyer').disabled = false;
+    return;
+  }
+  clearInterval(minuteur);
+
+  const secondes = Math.round((Date.now() - debut) / 1000);
+  if (resultat.code !== 200) {
+    afficherEtat($('etat-envoi'), 'refuse (' + resultat.code + ')', 'ko');
+    $('carte-reponse').classList.remove('cache');
+    $('meta-reponse').innerHTML = '';
+    $('texte-reponse').textContent = 'Erreur ' + resultat.code + ' : ' +
+      (resultat.corps && resultat.corps.detail ? resultat.corps.detail : 'reponse illisible');
+    $('trace').innerHTML = '';
+    $('bouton-envoyer').disabled = false;
+    return;
+  }
+
+  afficherEtat($('etat-envoi'), 'termine en ' + secondes + ' s', 'ok');
+  afficherReponse(resultat.corps, secondes);
+  $('bouton-envoyer').disabled = false;
+});
+
+function afficherReponse(corps, secondes) {
+  $('carte-reponse').classList.remove('cache');
+  $('meta-reponse').innerHTML =
+    '<div>duree <b>' + secondes + ' s</b></div>' +
+    '<div>mode <b>' + corps.planner_mode + '</b></div>' +
+    '<div>outils appeles <b>' + (corps.tools_used.length ? corps.tools_used.join(', ') : 'aucun') + '</b></div>' +
+    '<div>trace <b>' + corps.trace_id + '</b></div>';
+  $('texte-reponse').textContent = corps.answer;
+
+  let html = '';
+  if (corps.tool_trace && corps.tool_trace.length) {
+    html += '<table><thead><tr><th>Outil</th><th>Decision</th><th>Duree</th><th>Raison</th></tr></thead><tbody>' +
+      corps.tool_trace.map((appel) =>
+        '<tr><td><code>' + appel.tool + '</code></td>' +
+        '<td><span class="puce ' + appel.decision + '">' + appel.decision + '</span></td>' +
+        '<td>' + (appel.duration_ms !== null && appel.duration_ms !== undefined ? appel.duration_ms + ' ms' : '-') + '</td>' +
+        '<td>' + (appel.reason || '') + '</td></tr>'
+      ).join('') + '</tbody></table>';
+  } else {
+    html += '<p class="aide">Aucun outil n\'a ete propose par le modele : il a repondu directement.</p>';
+  }
+  if (corps.policy_denials && corps.policy_denials.length) {
+    html += '<p class="etat ko" style="margin-top:12px">Refus de la politique de droits :</p><ul>' +
+      corps.policy_denials.map((refus) => '<li>' + refus + '</li>').join('') + '</ul>';
+  }
+  $('trace').innerHTML = html;
+}
+
+// Pre-remplit l'adresse de l'API pour information.
+document.getElementById('utilisateur').placeholder = 'exemple : demo';
+</script>
+</body>
+</html>

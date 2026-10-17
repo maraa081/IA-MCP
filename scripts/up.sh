@@ -32,7 +32,8 @@ sleep 2
 
 echo "== Orchestrateur"
 start_background orchestrator "$LOG_DIR/orchestrator.log" \
-  "$PY" -m uvicorn orchestrator.app.main:app --host 127.0.0.1 --port 8080
+  "$PY" -m uvicorn orchestrator.app.main:app \
+  --host "${ORCHESTRATOR_HOST:-127.0.0.1}" --port "${ORCHESTRATOR_PORT:-8080}"
 wait_for_http "$ORCHESTRATOR_URL/health" "Orchestrateur" 60 || true
 
 echo
