@@ -1,6 +1,6 @@
 # Raccourcis du labo. Toutes les cibles renvoient vers scripts/, qui contient la
 # logique : le Makefile n'est qu'une memoire de ce qui est possible.
-.PHONY: help bootstrap keys token up down demo test logs audit clean
+.PHONY: help bootstrap keys token up down demo test test-infra logs audit clean
 
 help:
 	@echo "make bootstrap  Installation complete (venvs, cles, .env, modeles)"
@@ -10,6 +10,7 @@ help:
 	@echo "make down       Arrete la pile (ARGS=--all pour Ollama aussi)"
 	@echo "make demo       Demonstration de bout en bout"
 	@echo "make test       Tests unitaires (pytest)"
+	@echo "make test-infra Verifie que la pile reelle fonctionne (ARGS=--full)"
 	@echo "make logs       Suit les journaux applicatifs"
 	@echo "make audit      Affiche les dix derniers evenements d'audit"
 
@@ -36,6 +37,9 @@ demo:
 
 test:
 	./.venv/bin/python -m pytest
+
+test-infra:
+	./scripts/test-infra.sh $(ARGS)
 
 logs:
 	tail -f var/logs/*.log

@@ -168,11 +168,54 @@ modifient comme du texte.
 
 ## Tests
 
+Deux niveaux, complementaires :
+
 ```bash
-./.venv/bin/python -m pytest
+./.venv/bin/python -m pytest      # logique, en isolation (51 tests, aucun service requis)
+./scripts/test-infra.sh           # la pile reelle est-elle branchee ? (25 controles, rapide)
+./scripts/test-infra.sh --full    # ajoute un appel complet au modele (lent sur CPU)
 ```
 
-51 tests couvrent : la chaine JWT (jeton expire, mal signe, mauvaise audience,
+`make test` et `make test-infra` font la meme chose.
+
+### Ce que verifie le test d'infrastructure
+
+| Section | Controles |
+| --- | --- |
+| Moteur d'inference | Ollama repond, le modele declare dans la gateway est present |
+| Gateway | joignable, refuse un appel sans cle, alias `planner` charge |
+| Orchestrateur et MCP | etat global, gateway vue depuis l'orchestrateur, chaque serveur MCP joignable, outils decouverts |
+| Authentification | sans jeton 401, mauvais mot de passe 401, jeton emis, jeton malforme 401 |
+| Politique de droits | deux outils pour `analyst`, un seul pour `reader`, aucun pour un role inexistant, message hors plafond refuse en 403 avec la regle dans `X-Policy-Rule` |
+| Revocation | jeton valide 200, revocation enregistree, jeton revoque 401 |
+| Audit | evenements lisibles, empreinte du message et non son contenu, outils proposes et executer journalises |
+| Bout en bout (`--full`) | le modele appelle le bon outil, la reponse n'est pas vide, l'appel est autorise par la GPO |
+
+Le script sort en code d'erreur si un controle echoue : il est utilisable dans une
+chaine d'integration.
+
+### Verification manuelle, en trois commandes
+
+```bash
+curl -s http://127.0.0.1:8080/health | jq              # la pile est-elle debout ?
+curl -s -X POST http://127.0.0.1:8080/auth/token -H 'Content-Type: application/json' \
+  -d '{"username":"demo","password":"changeme-lab"}' | jq -r .access_token
+curl -s -X POST http://127.0.0.1:8080/v1/chat --oauth2-bearer "$TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Resume moi ce document : <votre texte>"}' | jq '{tools_used, answer}'
+```
+
+### Piege classique
+
+Si les tests d'authentification echouent apres avoir modifie `.env` :
+l'orchestrateur lit sa configuration **une seule fois, au demarrage**. Un
+changement de `DEV_USERNAME` ou de `DEV_PASSWORD` demande un redemarrage
+(`./scripts/down.sh && ./scripts/up.sh`). Le script `test-infra.sh` detecte ce cas
+et le dit explicitement plutot que d'afficher des echecs en cascade.
+
+### Ce que couvrent les tests unitaires
+
+Les 51 tests couvrent : la chaine JWT (jeton expire, mal signe, mauvaise audience,
 confusion d'algorithme, `alg=none`, revocation), le moteur de politiques (refus
 par defaut, quotas, frameworks, debit), le pipeline complet avec des doublures
 reseau (le modele ne voit que les outils autorises, un appel hors droits est
