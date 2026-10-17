@@ -9,7 +9,7 @@ Pour reproduire : `./scripts/up.sh` puis `./scripts/demo.sh`.
 ## Etape 1 - Sans jeton, l'API refuse
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8080/v1/chat \
+curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8090/v1/chat \
   -H 'Content-Type: application/json' -d '{"message":"bonjour"}'
 ```
 
@@ -23,7 +23,7 @@ Le refus est immediat : il ne depend d'aucune logique metier. C'est la dependanc
 ## Etape 2 - Obtention d'un jeton
 
 ```bash
-curl -s -X POST http://127.0.0.1:8080/auth/token \
+curl -s -X POST http://127.0.0.1:8090/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"username":"demo","password":"changeme-lab"}'
 ```
@@ -56,7 +56,7 @@ Trois remarques sur ces claims :
 ## Etape 3 - Les droits effectifs
 
 ```bash
-curl -s http://127.0.0.1:8080/auth/me -H "Authorization: Bearer $TOKEN"
+curl -s http://127.0.0.1:8090/auth/me -H "Authorization: Bearer $TOKEN"
 ```
 
 ```json
@@ -92,7 +92,7 @@ globaux. Aucune valeur n'est inventee : tout est lisible dans le YAML.
 ## Etape 4 - Ce que le modele a le droit de voir
 
 ```bash
-curl -s http://127.0.0.1:8080/tools -H "Authorization: Bearer $TOKEN"
+curl -s http://127.0.0.1:8090/tools -H "Authorization: Bearer $TOKEN"
 ```
 
 ```json

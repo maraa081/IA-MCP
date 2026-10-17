@@ -8,7 +8,7 @@ flowchart TB
     subgraph POSTE["Machine hote (labo)"]
         subgraph LOOPBACK["Interface de bouclage 127.0.0.1"]
             GW["Gateway LiteLLM<br/>:4000<br/>.venv-gateway"]
-            ORCH["Orchestrateur FastAPI<br/>:8080<br/>.venv"]
+            ORCH["Orchestrateur FastAPI<br/>:8090<br/>.venv"]
             M1["Serveur MCP summarizer<br/>:9101/mcp<br/>.venv"]
             M2["Serveur MCP codedoc<br/>:9102/mcp<br/>.venv"]
             OLL["Ollama<br/>:11434<br/>service systeme"]

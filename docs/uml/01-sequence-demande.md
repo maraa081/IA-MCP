@@ -7,7 +7,7 @@ C'est le diagramme de reference du projet : tout le reste decoule de ce trajet.
 sequenceDiagram
     autonumber
     actor U as Utilisateur (demo / analyst)
-    participant API as Orchestrateur<br/>(FastAPI :8080)
+    participant API as Orchestrateur<br/>(FastAPI :8090)
     participant JWT as Securite JWT<br/>(RS256)
     participant GPO as Politique<br/>(policies.yaml)
     participant PLAN as Planificateur<br/>(llm/planner.py)

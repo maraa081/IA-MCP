@@ -17,7 +17,7 @@ fi
 echo "== Gateway LiteLLM (point d'entree unique des modeles)"
 start_background gateway "$LOG_DIR/gateway.log" \
   "$VENV_GATEWAY/bin/litellm" --config "$PROJECT_ROOT/gateway/config.yaml" \
-  --host 127.0.0.1 --port 4000
+  --host "${GATEWAY_HOST:-127.0.0.1}" --port "${GATEWAY_PORT:-4000}"
 wait_for_http "$GATEWAY_URL/health/liveliness" "Gateway" 60 || \
   wait_for_http "$GATEWAY_URL/v1/models" "Gateway (v1/models)" 10 || true
 
@@ -28,12 +28,15 @@ start_background mcp-codedoc "$LOG_DIR/mcp-codedoc.log" \
   "$PY" -m mcp_servers.codedoc.server --port 9102
 start_background mcp-codedb "$LOG_DIR/mcp-codedb.log" \
   "$PY" -m mcp_servers.codedb.server --port 9103
+echo "== Passerelle d'outils (MCP -> OpenAPI, pour Open WebUI)"
+"$PROJECT_ROOT/scripts/bridge.sh" up
+
 sleep 2
 
 echo "== Orchestrateur"
 start_background orchestrator "$LOG_DIR/orchestrator.log" \
   "$PY" -m uvicorn orchestrator.app.main:app \
-  --host "${ORCHESTRATOR_HOST:-127.0.0.1}" --port "${ORCHESTRATOR_PORT:-8080}"
+  --host "${ORCHESTRATOR_HOST:-127.0.0.1}" --port "${ORCHESTRATOR_PORT:-8090}"
 wait_for_http "$ORCHESTRATOR_URL/health" "Orchestrateur" 60 || true
 
 echo
@@ -42,4 +45,5 @@ curl -fsS "$ORCHESTRATOR_URL/health" | "${PY}" -m json.tool 2>/dev/null || \
   echo "  (orchestrateur pas encore pret : voir $LOG_DIR/orchestrator.log)"
 echo
 echo "Documentation interactive : $ORCHESTRATOR_URL/docs"
+echo "Facade de chat (facultative) : ./scripts/openwebui.sh up  ->  $OPENWEBUI_URL"
 echo "Journaux : $LOG_DIR"

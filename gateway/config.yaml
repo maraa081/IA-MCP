@@ -20,6 +20,9 @@ model_list:
       api_base: http://127.0.0.1:11434
       temperature: 0.1
       num_ctx: 8192
+      # Pas de phase de reflexion : elle triple la latence et peut consommer
+      # tout le budget de tokens en pensant, pour rendre une reponse VIDE.
+      think: false
     model_info:
       description: "Choix d'outils (function calling), rapide, CPU-friendly"
 
@@ -31,6 +34,8 @@ model_list:
       api_base: http://127.0.0.1:11434
       temperature: 0.4
       num_ctx: 16384
+      # Meme raison que pour planner : on veut du texte, pas de la reflexion.
+      think: false
     model_info:
       description: "Redaction : resumes et documentation technique"
 

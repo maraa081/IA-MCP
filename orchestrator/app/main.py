@@ -1,7 +1,7 @@
 """Point d'entree de l'orchestrateur.
 
 Lancement :
-  .venv/bin/uvicorn orchestrator.app.main:app --host 127.0.0.1 --port 8080
+  .venv/bin/uvicorn orchestrator.app.main:app --host 127.0.0.1 --port 8090
 
 Lecture conseillee du code, dans cet ordre :
   config.py      -> ce qui est parametrable
@@ -106,7 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # evite "*" qui, combine a des identifiants, est une faille silencieuse.
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["http://127.0.0.1:8080", "http://localhost:8080"],
+            allow_origins=["http://127.0.0.1:8090", "http://localhost:8090"],
             allow_methods=["GET", "POST"],
             allow_headers=["Authorization", "Content-Type"],
         )

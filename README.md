@@ -13,7 +13,7 @@ Utilisateur
     v
 +-----------------------------+        +--------------------------+
 |  Orchestrateur FastAPI      |  HTTP  |  Gateway LiteLLM :4000   |
-|  :8080                      |------->|  (alias planner/writer)  |
+|  :8090                      |------->|  (alias planner/writer)  |
 |                             |        +------------+-------------+
 |  1. verification du JWT     |                     |
 |  2. politique (GPO)         |                     v
@@ -61,7 +61,9 @@ chaque tour repasse par la politique de droits.
 | Serveur MCP `summarizer` | 9101 | Outil `summarize_text` | `mcp_servers/summarizer/server.py` |
 | Serveur MCP `codedoc` | 9102 | Outil `code_to_technical_doc` (code fourni dans le prompt) | `mcp_servers/codedoc/server.py` |
 | Serveur MCP `codedb` | 9103 | Quatre outils qui lisent le code dans une base | `mcp_servers/codedb/server.py` |
-| Orchestrateur | 8080 | Authentification, GPO, planification, synthese | `orchestrator/app/` |
+| Orchestrateur | 8090 | Authentification, GPO, planification, synthese | `orchestrator/app/` |
+| Passerelle d'outils (mcpo) | 9300 | Traduit les serveurs MCP en OpenAPI pour Open WebUI | `bridge/mcpo.config.json` |
+| Open WebUI (Docker) | 3000 | Facade de chat, outils activables par conversation | `scripts/openwebui.sh` |
 
 Un seul utilisateur de demonstration (`demo`, role `analyst`) et deux outils,
 comme demande. Tout est prevu pour en ajouter sans toucher au coeur du code.
@@ -70,12 +72,13 @@ comme demande. Tout est prevu pour en ajouter sans toucher au coeur du code.
 
 ```bash
 ./scripts/bootstrap.sh     # environnements Python, cles JWT, .env, modeles Ollama
-./scripts/up.sh            # Ollama, gateway, serveurs MCP, orchestrateur
+./scripts/up.sh            # Ollama, gateway, serveurs MCP, passerelle d'outils, orchestrateur
+./scripts/openwebui.sh up  # facade de chat Open WebUI (facultative)
 ./scripts/demo.sh          # parcours complet commente, de bout en bout
 ./scripts/down.sh          # arret (--all pour arreter aussi Ollama)
 ```
 
-L'API est documentee automatiquement (OpenAPI) sur <http://127.0.0.1:8080/docs>.
+L'API est documentee automatiquement (OpenAPI) sur <http://127.0.0.1:8090/docs>.
 
 Comptez plusieurs dizaines de secondes par appel de modele : l'inference se fait
 sur CPU.
@@ -86,9 +89,9 @@ L'API sert elle-meme une page de prompt : un seul fichier HTML, sans dependance
 ni etape de build.
 
 ```
-http://localhost:8080/ui      page de prompt
-http://localhost:8080/docs    documentation interactive (bouton Authorize)
-http://localhost:8080/        redirige vers /ui
+http://localhost:8090/ui      page de prompt
+http://localhost:8090/docs    documentation interactive (bouton Authorize)
+http://localhost:8090/        redirige vers /ui
 ```
 
 La page permet de s'authentifier, de voir ses droits effectifs, d'envoyer un
@@ -108,7 +111,7 @@ ORCHESTRATOR_HOST=0.0.0.0
 ```
 
 puis redemarrer la pile (`./scripts/up.sh`). WSL2 redirige ensuite le `localhost`
-de Windows vers WSL automatiquement : `http://localhost:8080/ui` fonctionne sans
+de Windows vers WSL automatiquement : `http://localhost:8090/ui` fonctionne sans
 regle de pare-feu ni redirection de port.
 
 L'adresse reseau de WSL fonctionne aussi, mais elle change a chaque redemarrage :
@@ -133,6 +136,58 @@ La page s'authentifie avec les identifiants de demonstration, qui portent le rol
 
 puis ouvrir « Coller un jeton existant » dans la page, et demander une
 documentation de code : `documenter_code` n'est pas accorde au role `reader`.
+
+### Facade de chat : Open WebUI
+
+Une interface de chat complete, branchee sur la gateway (donc sur les memes cles
+et les memes quotas), avec les outils MCP **activables ou desactivables
+conversation par conversation**.
+
+```bash
+./scripts/bridge.sh up         # passerelle d'outils (mcpo), port 9300
+./scripts/openwebui.sh up      # conteneur Docker, port 3000
+./scripts/openwebui.sh setup   # premier compte admin + declaration des outils
+```
+
+Puis, dans le navigateur : <http://localhost:3000>.
+
+```
+navigateur -> Open WebUI :3000 -> gateway LiteLLM :4000 -> Ollama :11434
+                    |
+                    +-> passerelle mcpo :9300 -> serveurs MCP 9101 / 9102 / 9103
+```
+
+**Activer un outil, ou pas.** Sous le champ de saisie, l'icone d'outils liste les
+serveurs declares : `MCP - resume de texte`, `MCP - code en documentation`,
+`MCP - code indexe`. Ce qui est coche est mis a disposition du modele pour ce
+message ; ce qui ne l'est pas n'existe pas pour lui. C'est la difference avec
+l'orchestrateur, ou c'est la politique qui decide a la place de l'utilisateur.
+
+**Pourquoi une passerelle d'outils.** Open WebUI parle OpenAPI, pas MCP : `mcpo`
+(outil de l'equipe Open WebUI) expose chaque serveur MCP en API REST et publie un
+document OpenAPI, que Open WebUI importe comme « serveur d'outils ». La passerelle
+ne detient aucune cle de modele : ce sont les serveurs MCP qui parlent a la
+gateway, avec leur cle restreinte au modele de redaction.
+
+**Compte et cle.** L'installation cree un administrateur ; ses identifiants sont
+dans `var/openwebui-admin.txt` (non versionne, droits 600). La cle de la
+passerelle d'outils est `MCPO_API_KEY` dans `.env`.
+
+**Piege (rencontre ici) :** `mcpo` 0.0.20 exige `mcp<2`, alors que les serveurs du
+labo utilisent le SDK 2.3.0. Le venv dedie `.venv-bridge` fige donc `mcp==1.30.0` :
+les deux versions cohabitent, chacune dans son environnement. A retenir : un pont
+entre deux generations d'un meme SDK se resout par l'isolation, pas par un
+melange de versions.
+
+**Piege (IP de WSL) :** le conteneur joint les services de WSL par l'adresse de
+WSL, qui change au redemarrage de Windows. `./scripts/openwebui.sh up` recalcule
+cette adresse et recree le conteneur si elle a bouge.
+
+**Reglage utile :** la gateway porte desormais `think: false` sur ses deux alias.
+Sans cela, le modele consomme son budget de tokens en reflexion interne, triple la
+latence et peut rendre une reponse vide (voir les defauts trouves a l'execution).
+L'interface web n'a pas de bouton pour ce reglage : le bon endroit est la gateway,
+ou tous les clients en profitent.
 
 ### Tester en tapant un prompt
 
@@ -182,15 +237,15 @@ outils appeles ... summarize_text
 
 ```bash
 # 1. obtenir un jeton
-TOKEN=$(curl -s -X POST http://127.0.0.1:8080/auth/token \
+TOKEN=$(curl -s -X POST http://127.0.0.1:8090/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"username":"demo","password":"changeme-lab"}' | jq -r .access_token)
 
 # 2. voir ses droits
-curl -s http://127.0.0.1:8080/auth/me -H "Authorization: Bearer $TOKEN" | jq
+curl -s http://127.0.0.1:8090/auth/me -H "Authorization: Bearer $TOKEN" | jq
 
 # 3. poser une demande
-curl -s -X POST http://127.0.0.1:8080/v1/chat -H "Authorization: Bearer $TOKEN" \
+curl -s -X POST http://127.0.0.1:8090/v1/chat -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"message":"Resume moi ce document : <collez votre texte>"}' | jq '{answer, tools_used}'
 ```
@@ -340,10 +395,10 @@ chaine d'integration.
 ### Verification manuelle, en trois commandes
 
 ```bash
-curl -s http://127.0.0.1:8080/health | jq              # la pile est-elle debout ?
-curl -s -X POST http://127.0.0.1:8080/auth/token -H 'Content-Type: application/json' \
+curl -s http://127.0.0.1:8090/health | jq              # la pile est-elle debout ?
+curl -s -X POST http://127.0.0.1:8090/auth/token -H 'Content-Type: application/json' \
   -d '{"username":"demo","password":"changeme-lab"}' | jq -r .access_token
-curl -s -X POST http://127.0.0.1:8080/v1/chat --oauth2-bearer "$TOKEN" \
+curl -s -X POST http://127.0.0.1:8090/v1/chat --oauth2-bearer "$TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"message":"Resume moi ce document : <votre texte>"}' | jq '{tools_used, answer}'
 ```

@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # Attention : l'API exigera toujours un jeton, mais elle devient joignable
     # depuis le reseau local. A remettre sur 127.0.0.1 apres les essais.
     orchestrator_host: str = "127.0.0.1"
-    orchestrator_port: int = 8080
+    orchestrator_port: int = 8090
 
     # --- Gateway LLM ---------------------------------------------------------
     gateway_url: str = "http://127.0.0.1:4000"

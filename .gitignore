@@ -1,6 +1,7 @@
 # Environnements Python
 .venv/
 .venv-gateway/
+.venv-bridge/
 __pycache__/
 *.py[cod]
 

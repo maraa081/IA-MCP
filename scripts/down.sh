@@ -6,6 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 echo "Arret des services"
 stop_background orchestrator
+stop_background mcpo
 stop_background mcp-codedb
 stop_background mcp-codedoc
 stop_background mcp-summarizer
