@@ -32,6 +32,7 @@ export PY="$VENV/bin/python"
 export VAR_DIR="$PROJECT_ROOT/var"
 export PID_DIR="$VAR_DIR/run"
 export LOG_DIR="$VAR_DIR/logs"
+export AUDIT_LOG="$LOG_DIR/audit.jsonl"
 mkdir -p "$PID_DIR" "$LOG_DIR"
 
 # --- Fonctions utilitaires ----------------------------------------------------

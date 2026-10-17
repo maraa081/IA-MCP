@@ -73,6 +73,46 @@ L'API est documentee automatiquement (OpenAPI) sur <http://127.0.0.1:8080/docs>.
 Comptez plusieurs dizaines de secondes par appel de modele : l'inference se fait
 sur CPU.
 
+### Tester en tapant un prompt
+
+Le plus simple pour voir l'infrastructure travailler :
+
+```bash
+./scripts/prompt.sh "Resume moi ce document : <votre texte>"
+./scripts/prompt.sh "Documente ce code avec le framework arc42 : <votre code>"
+cat document.txt | ./scripts/prompt.sh "Resume ce document"
+```
+
+Le script signe un jeton localement, envoie le prompt et affiche non seulement la
+reponse mais aussi **la trace de la decision** : mode de planification, outils
+appeles, refus eventuels, duree de chaque appel, et la ligne d'audit
+correspondante.
+
+Options utiles :
+
+| Option | Effet |
+| --- | --- |
+| `--no-synthesis` | supprime l'appel de redaction finale : plus rapide, l'outil rend son texte directement |
+| `--role reader` | rejoue la meme demande avec un role moins permissif, pour voir la GPO a l'oeuvre |
+| `--sub <nom>` | change le porteur du jeton |
+| `--json` | affiche la reponse brute de l'API |
+
+Exemple de sortie (resume d'un incident, `--no-synthesis`) :
+
+```
+utilisateur : demo   role(s) : analyst   modele : planner -> writer
+
+ REPONSE
+Le service de facturation a connu une interruption de 3 heures le 12 octobre due
+<...>
+
+ TRACE DE LA DECISION
+trace_id ......... b9effffacb5b4676
+mode de decision . native
+outils appeles ... summarize_text
+  [allowed] summarize_text (15451 ms)
+```
+
 ### Essai manuel en trois commandes
 
 ```bash
