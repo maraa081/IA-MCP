@@ -25,14 +25,29 @@ from typing import Any
 
 from .audit import AuditLogger
 from .config import Settings
-from .llm import GatewayClient, Synthesizer, ToolPlanner
-from .mcp import McpClient, ToolRegistry
+from .llm import (
+    GatewayClient,
+    PlannedCall,
+    Synthesizer,
+    ToolPlanner,
+    assistant_tool_call_message,
+    tool_result_message,
+)
+from .mcp import McpClient, ToolDescriptor, ToolRegistry
 from .policy import PolicyEngine
 from .security import AuthenticatedUser
 
 # Nombre de caracteres d'un resultat d'outil conserves dans la reponse HTTP.
 # La reponse complete reste disponible cote serveur (journal d'audit).
 MAX_PREVIEW_CHARS = 1500
+
+# Taille maximale d'un resultat d'outil reinjecte dans la conversation, au tour
+# suivant. Borne la consommation de la fenetre de contexte.
+MAX_TOOL_MESSAGE_CHARS = 8000
+
+# Champs par lesquels un outil rend un texte deja redige. "resume" est le nom
+# utilise par le serveur de code indexe, les autres viennent des autres outils.
+TEXT_KEYS = ("summary", "documentation", "resume", "text")
 
 
 class PolicyViolation(RuntimeError):
@@ -137,94 +152,94 @@ class ChatPipeline:
         grants = self._policy.grants_for(user.roles)
         visible_tools = self._registry.filter(set(grants.keys()))
         max_calls = int(self._policy.limits.get("max_tool_calls_per_request", 3))
+        want_synthesis = (
+            self._settings.synthesis_enabled if synthesize is None else synthesize
+        )
 
-        # --- Etape 3 : planification -----------------------------------------
-        plan = await self._planner.plan(user_message=message, tools=visible_tools)
-
-        # --- Etape 4 : autorisation puis execution ---------------------------
+        # --- Etapes 3 et 4 : boucle planification, autorisation, execution ----
+        # Le modele est rappele apres chaque tour d'outils : c'est ce qui lui
+        # permet, par exemple, de chercher un fichier dans la base puis de le
+        # resumer au tour suivant. La boucle est bornee : une erreur de
+        # modelisation ne peut pas faire tourner l'orchestrateur indefiniment.
+        conversation: list[dict[str, Any]] = [{"role": "user", "content": message}]
         traces: list[ToolCallTrace] = []
         results: list[dict[str, Any]] = []
         denials: list[str] = []
         errors: list[str] = []
+        proposed: list[str] = []
         executed = 0
+        rounds = 0
+        planner_mode = "none"
+        answer = ""
 
-        for call in plan.calls[:max_calls]:
-            descriptor = self._registry.get(call.tool)
+        for _ in range(max(1, self._settings.max_tool_rounds)):
+            rounds += 1
+            plan = await self._planner.plan(messages=conversation, tools=visible_tools)
+            planner_mode = plan.mode
+            proposed.extend(call.tool for call in plan.calls)
 
-            if descriptor is None:
-                reason = f"outil inconnu : '{call.tool}'"
-                denials.append(reason)
-                traces.append(
-                    ToolCallTrace(
-                        tool=call.tool, arguments=call.arguments,
-                        decision="denied", reason=reason,
-                    )
+            if not plan.calls:
+                # Le modele repond en texte : fin de la boucle.
+                answer = plan.content
+                break
+
+            # Le message assistant liste TOUS les appels demandes : le protocole
+            # impose un resultat pour chacun, y compris pour un appel refuse.
+            conversation.append(assistant_tool_call_message(plan.calls))
+
+            for call in plan.calls:
+                descriptor = self._registry.get(call.tool)
+                texte, trace, payload = await self._execute_call(
+                    call=call,
+                    user=user,
+                    descriptor=descriptor,
+                    executed=executed,
+                    max_calls=max_calls,
                 )
-                continue
+                traces.append(trace)
 
-            decision = self._policy.check_tool_call(
-                sub=user.sub,
-                roles=user.roles,
-                tool=call.tool,
-                arguments=call.arguments,
-                calls_so_far=executed,
-            )
-            if not decision.allowed:
-                denials.append(f"{call.tool} : {decision.reason}")
-                traces.append(
-                    ToolCallTrace(
-                        tool=call.tool, arguments=call.arguments,
-                        decision="denied", reason=decision.reason,
-                    )
-                )
-                continue
+                if trace.decision == "allowed":
+                    executed += 1
+                    if payload is not None:
+                        results.append(
+                            {
+                                "tool": call.tool,
+                                "server": descriptor.server,
+                                "payload": payload,
+                            }
+                        )
+                elif trace.decision == "denied":
+                    denials.append(f"{call.tool} : {trace.reason}")
+                else:
+                    errors.append(f"{call.tool} : {trace.reason}")
 
-            executed += 1
-            result = await self._mcp.call_tool(
-                server=descriptor.server,
-                url=self._settings.mcp_servers[descriptor.server],
-                tool=call.tool,
-                arguments=call.arguments,
-            )
+                conversation.append(tool_result_message(call, texte))
 
-            if not result.ok:
-                # Echec de l'outil (argument invalide, serveur en erreur, delai
-                # depasse) : ce n'est pas un refus de politique, c'est une
-                # erreur d'execution. On les separe pour que l'utilisateur
-                # sache s'il doit demander un droit ou corriger sa demande.
-                errors.append(f"{call.tool} : {result.error}")
-                traces.append(
-                    ToolCallTrace(
-                        tool=call.tool, arguments=call.arguments,
-                        decision="error", reason=result.error,
-                        duration_ms=result.duration_ms,
-                    )
-                )
-                continue
-
-            payload = result.payload if result.payload is not None else {"text": result.text}
-            results.append({"tool": call.tool, "server": descriptor.server, "payload": payload})
-            traces.append(
-                ToolCallTrace(
-                    tool=call.tool,
-                    arguments=call.arguments,
-                    decision="allowed",
-                    reason="execute",
-                    duration_ms=result.duration_ms,
-                    output_preview=result.preview(MAX_PREVIEW_CHARS),
-                )
-            )
+            # Sortie anticipee : l'outil a deja rendu un texte redige et la
+            # synthese est desactivee. Rappeler le modele n'apporterait rien.
+            if (
+                len(results) == 1
+                and not want_synthesis
+                and _contient_un_texte(results[0]["payload"])
+            ):
+                break
 
         # --- Etape 5 : reponse finale ----------------------------------------
-        answer, model_used = await self._finalize(
-            user_message=message,
-            plan_content=plan.content,
-            results=results,
-            denials=denials,
-            errors=errors,
-            model=model,
-            synthesize=synthesize,
-        )
+        if answer:
+            # Le modele a conclu lui-meme, apres avoir vu les resultats.
+            model_used = self._settings.planner_model
+        else:
+            # Il n'a rien produit d'exploitable : on compose a partir des
+            # resultats obtenus, ou on explique l'echec.
+            answer, model_used = await self._finalize(
+                user_message=message,
+                plan_content="",
+                results=results,
+                denials=denials,
+                errors=errors,
+                model=model,
+                synthesize=synthesize,
+            )
 
         # --- Etape 6 : audit -------------------------------------------------
         latency_ms = int((time.perf_counter() - started) * 1000)
@@ -235,9 +250,10 @@ class ChatPipeline:
                 "sub": user.sub,
                 "roles": user.roles,
                 "jti": user.jti,
-                "planner_mode": plan.mode,
+                "planner_mode": planner_mode,
+                "rounds": rounds,
                 "tools_visible": [tool.name for tool in visible_tools],
-                "tools_proposed": [call.tool for call in plan.calls],
+                "tools_proposed": proposed,
                 "tools_executed": [result["tool"] for result in results],
                 "denials": denials,
                 "errors": errors,
@@ -256,8 +272,102 @@ class ChatPipeline:
             tools_used=[result["tool"] for result in results],
             tool_trace=traces,
             denials=denials,
-            planner_mode=plan.mode,
+            planner_mode=planner_mode,
             latency_ms=latency_ms,
+        )
+
+    # --- Execution d'un appel d'outil ----------------------------------------
+
+    async def _execute_call(
+        self,
+        *,
+        call: PlannedCall,
+        user: AuthenticatedUser,
+        descriptor: ToolDescriptor | None,
+        executed: int,
+        max_calls: int,
+    ) -> tuple[str, ToolCallTrace, dict[str, Any] | None]:
+        """Autorise puis execute un appel.
+
+        Retourne (texte pour le modele, trace, donnees). Le texte est ajoute a la
+        conversation : c'est ce que le modele lira au tour suivant, refus et
+        erreurs compris, ce qui lui permet de se corriger.
+        """
+        if descriptor is None:
+            reason = f"outil inconnu : '{call.tool}'"
+            return (
+                reason,
+                ToolCallTrace(
+                    tool=call.tool, arguments=call.arguments, decision="denied", reason=reason
+                ),
+                None,
+            )
+
+        if executed >= max_calls:
+            reason = f"quota global d'appels atteint ({max_calls} par requete)"
+            return (
+                reason,
+                ToolCallTrace(
+                    tool=call.tool, arguments=call.arguments, decision="denied", reason=reason
+                ),
+                None,
+            )
+
+        decision = self._policy.check_tool_call(
+            sub=user.sub,
+            roles=user.roles,
+            tool=call.tool,
+            arguments=call.arguments,
+            calls_so_far=executed,
+        )
+        if not decision.allowed:
+            return (
+                decision.reason,
+                ToolCallTrace(
+                    tool=call.tool,
+                    arguments=call.arguments,
+                    decision="denied",
+                    reason=decision.reason,
+                ),
+                None,
+            )
+
+        result = await self._mcp.call_tool(
+            server=descriptor.server,
+            url=self._settings.mcp_servers[descriptor.server],
+            tool=call.tool,
+            arguments=call.arguments,
+        )
+
+        if not result.ok:
+            # Echec d'execution (argument refuse par l'outil, delai depasse,
+            # serveur en erreur) : ce n'est pas un refus de droits.
+            reason = result.error or "erreur d'execution"
+            return (
+                f"erreur : {reason}",
+                ToolCallTrace(
+                    tool=call.tool,
+                    arguments=call.arguments,
+                    decision="error",
+                    reason=reason,
+                    duration_ms=result.duration_ms,
+                ),
+                None,
+            )
+
+        payload = result.payload if result.payload is not None else {"text": result.text}
+        texte = json.dumps(payload, ensure_ascii=False)[:MAX_TOOL_MESSAGE_CHARS]
+        return (
+            texte,
+            ToolCallTrace(
+                tool=call.tool,
+                arguments=call.arguments,
+                decision="allowed",
+                reason="execute",
+                duration_ms=result.duration_ms,
+                output_preview=result.preview(MAX_PREVIEW_CHARS),
+            ),
+            payload,
         )
 
     # --- Etape 5, detail -----------------------------------------------------
@@ -330,9 +440,24 @@ def _explain_failure(denials: list[str], errors: list[str]) -> str:
     return "La demande n'a pas pu etre traitee.\n\n" + "\n\n".join(parts)
 
 
+def _contient_un_texte(payload: dict[str, Any]) -> bool:
+    """Vrai si l'outil a deja rendu un texte redige (resume, documentation).
+
+    Sert a la sortie anticipee de la boucle : si l'outil a deja produit la
+    prose attendue et que la synthese est desactivee, rappeler le modele
+    n'apporterait rien. Un resultat qui n'est qu'une liste de fichiers, par
+    exemple, n'est pas un texte redige : la boucle continue.
+    """
+    for cle in TEXT_KEYS:
+        valeur = payload.get(cle)
+        if isinstance(valeur, str) and valeur.strip():
+            return True
+    return False
+
+
 def _render_payload(payload: dict[str, Any]) -> str:
     """Rend un resultat d'outil de facon lisible pour l'utilisateur."""
-    for key in ("summary", "documentation", "text"):
+    for key in TEXT_KEYS:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()

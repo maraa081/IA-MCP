@@ -46,14 +46,21 @@ Un utilisateur s'authentifie, puis envoie une demande en langage naturel
 
 Le modele propose, le code decide. C'est le principe central du projet.
 
+Pour une demande qui demande plusieurs etapes ("trouve le fichier qui gere la
+politique de droits, puis resume-le"), l'orchestrateur boucle : il rappelle le
+modele avec les resultats obtenus, jusqu'a deux tours. La boucle est bornee, et
+chaque tour repasse par la politique de droits.
+
 ## Composants et ports
 
 | Composant | Port | Role | Code |
 | --- | --- | --- | --- |
 | Ollama | 11434 | Moteur d'inference local | (externe) |
-| Gateway LiteLLM | 4000 | Point d'entree unique des modeles, alias et quotas | `gateway/config.yaml` |
+| Gateway LiteLLM | 4000 | Point d'entree unique des modeles, cles virtuelles, quotas | `gateway/config.yaml` |
+| PostgreSQL (Docker) | 5433 | Cles virtuelles de la gateway, budgets, historique des appels | `scripts/setup_db.sh` |
 | Serveur MCP `summarizer` | 9101 | Outil `summarize_text` | `mcp_servers/summarizer/server.py` |
-| Serveur MCP `codedoc` | 9102 | Outil `code_to_technical_doc` | `mcp_servers/codedoc/server.py` |
+| Serveur MCP `codedoc` | 9102 | Outil `code_to_technical_doc` (code fourni dans le prompt) | `mcp_servers/codedoc/server.py` |
+| Serveur MCP `codedb` | 9103 | Quatre outils qui lisent le code dans une base | `mcp_servers/codedb/server.py` |
 | Orchestrateur | 8080 | Authentification, GPO, planification, synthese | `orchestrator/app/` |
 
 Un seul utilisateur de demonstration (`demo`, role `analyst`) et deux outils,
@@ -81,6 +88,10 @@ Le plus simple pour voir l'infrastructure travailler :
 ./scripts/prompt.sh "Resume moi ce document : <votre texte>"
 ./scripts/prompt.sh "Documente ce code avec le framework arc42 : <votre code>"
 cat document.txt | ./scripts/prompt.sh "Resume ce document"
+
+# depuis la base de code indexee (aucun code a coller dans le prompt)
+./scripts/prompt.sh --no-synthesis "Resume le fichier orchestrator/app/policy/engine.py de la base de code"
+./scripts/prompt.sh "Documente le fichier mcp_servers/codedb/server.py avec le framework madr"
 ```
 
 Le script signe un jeton localement, envoie le prompt et affiche non seulement la
@@ -130,14 +141,29 @@ curl -s -X POST http://127.0.0.1:8080/v1/chat -H "Authorization: Bearer $TOKEN" 
   -d '{"message":"Resume moi ce document : <collez votre texte>"}' | jq '{answer, tools_used}'
 ```
 
-## Les deux outils MCP
+## Les outils MCP
 
-### `summarize_text`
+### Le code fourni, ou le code lu en base ?
+
+Deux serveurs repondent au meme besoin par des chemins opposes. C'est la
+decision d'architecture la plus interessante du projet.
+
+| | Serveur `codedoc` | Serveur `codedb` |
+| --- | --- | --- |
+| Source du code | fourni dans le prompt | lu dans une base SQLite |
+| Taille acceptee | limitee par la fenetre de contexte | limitee par la base |
+| Traçabilite | le code apparait dans le message | seule la reference apparait |
+| Usage | un extrait ponctuel | un depot entier indexe |
+
+En pratique, `codedb` est ce qu'on veut en entreprise : le modele manipule des
+references (`policy/engine.py`), pas des milliers de lignes de code.
+
+### `summarize_text` (serveur `summarizer`)
 
 Resume un texte en `max_sentences` phrases, dans un style donne
 (`neutral`, `bullets`, `executive`, `technical`).
 
-### `code_to_technical_doc`
+### `code_to_technical_doc` (serveur `codedoc`)
 
 Transforme du code source en documentation technique structuree par un framework
 etabli, choisi par l'appelant :
@@ -154,8 +180,31 @@ Le framework est impose au modele section par section, et le serveur verifie
 ensuite dans le texte produit quelles sections manquent (`missing_sections`).
 Le modele ne s'auto-certifie pas.
 
-Ajouter un framework = ajouter une entree dans
-`mcp_servers/codedoc/frameworks.py`. Aucun autre fichier a modifier.
+### Les quatre outils de `codedb`
+
+| Outil | Ce qu'il fait |
+| --- | --- |
+| `code_disponible` | inventaire de l'index : langages, fichiers les plus volumineux |
+| `chercher_code` | recherche sur le chemin, la description et le contenu |
+| `resumer_code` | explique un fichier designe par sa reference |
+| `documenter_code` | produit une documentation structuree de ce fichier |
+
+Aucun de ces outils ne recoit de code en argument : ils recoivent une reference,
+et c'est la base qui fournit le contenu. L'index est construit par :
+
+```bash
+./.venv/bin/python scripts/index_code.py            # indexe le projet lui-meme
+./.venv/bin/python scripts/index_code.py --racine /autre/depot
+./.venv/bin/python scripts/index_code.py --liste    # simulation
+```
+
+L'indexation est incrementalе : l'empreinte sha256 du contenu evite de reecrire
+les fichiers inchanges, ce qui permet de la mettre dans une tache planifiee.
+
+> Remarque : au premier lancement, `codedoc` est plus rapide a utiliser (on colle
+> un extrait). `codedb` demande d'indexer d'abord, mais c'est le seul qui tient a
+> l'echelle d'un depot et le seul qui laisse une trace exploitable (la reference
+> demandee, pas le contenu).
 
 ## Securite : quatre couches
 
@@ -211,8 +260,8 @@ modifient comme du texte.
 Deux niveaux, complementaires :
 
 ```bash
-./.venv/bin/python -m pytest      # logique, en isolation (51 tests, aucun service requis)
-./scripts/test-infra.sh           # la pile reelle est-elle branchee ? (25 controles, rapide)
+./.venv/bin/python -m pytest      # logique, en isolation (68 tests, aucun service requis)
+./scripts/test-infra.sh           # la pile reelle est-elle branchee ? (27 controles, rapide)
 ./scripts/test-infra.sh --full    # ajoute un appel complet au modele (lent sur CPU)
 ```
 
@@ -255,7 +304,7 @@ et le dit explicitement plutot que d'afficher des echecs en cascade.
 
 ### Ce que couvrent les tests unitaires
 
-Les 51 tests couvrent : la chaine JWT (jeton expire, mal signe, mauvaise audience,
+Les 68 tests couvrent : la chaine JWT (jeton expire, mal signe, mauvaise audience,
 confusion d'algorithme, `alg=none`, revocation), le moteur de politiques (refus
 par defaut, quotas, frameworks, debit), le pipeline complet avec des doublures
 reseau (le modele ne voit que les outils autorises, un appel hors droits est
@@ -333,7 +382,9 @@ declare sera devine ;
 | --- | --- | --- |
 | Emission des jetons | `POST /auth/token` de demonstration | Keycloak / Entra ID / Okta ; l'orchestrateur ne fait que verifier |
 | Revocation | fichier JSON | Redis ou base, avec TTL egal a la duree du jeton |
-| Cle de service vers la gateway | cle maitresse LiteLLM | base PostgreSQL + une cle virtuelle par service (quotas, modeles autorises) |
+| Cles d'acces a la gateway | cle virtuelle par service, en base (fait) | rotation planifiee, budgets par equipe, cles revoquees automatiquement |
+| Base de la gateway | PostgreSQL en conteneur sur la meme machine | PostgreSQL manage, sauvegarde, replicat |
+| Base de code | SQLite, indexation a la main | PostgreSQL, indexation par la chaine d'integration a chaque fusion |
 | Sessions MCP | une par appel | pool de sessions par serveur |
 | Transport | HTTP sur `127.0.0.1` | TLS, mTLS entre services, reseau segmente |
 | Limitation de debit | en memoire | passerelle d'API (une seule instance, resistante a l'echelle) |
@@ -348,5 +399,10 @@ ce qui fait la difference entre une maquette et un service en production.
 
 - Python 3.11 ou plus (teste sur 3.12)
 - Ollama avec le modele `qwen3.5:4b` (recupere par `bootstrap.sh`)
+- Docker (pour PostgreSQL, la base des cles virtuelles de la gateway)
 - `curl` et `jq` pour les scripts de demonstration
 - Pas de GPU necessaire : tout tourne sur CPU
+
+PostgreSQL est le seul service en conteneur. Si vous n'avez pas Docker, la pile
+fonctionne encore : LiteLLM retombe en mode sans base, ou la seule cle valide est
+la cle maitresse.

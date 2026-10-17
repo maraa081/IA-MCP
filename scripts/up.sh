@@ -26,6 +26,8 @@ start_background mcp-summarizer "$LOG_DIR/mcp-summarizer.log" \
   "$PY" -m mcp_servers.summarizer.server --port 9101
 start_background mcp-codedoc "$LOG_DIR/mcp-codedoc.log" \
   "$PY" -m mcp_servers.codedoc.server --port 9102
+start_background mcp-codedb "$LOG_DIR/mcp-codedb.log" \
+  "$PY" -m mcp_servers.codedb.server --port 9103
 sleep 2
 
 echo "== Orchestrateur"

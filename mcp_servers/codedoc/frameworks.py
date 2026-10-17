@@ -8,10 +8,15 @@ rendu verifiable (il manque une section = c'est visible).
 Pour ajouter un framework : ajouter une entree dans FRAMEWORKS. Aucune autre
 modification n'est necessaire (ni dans le serveur, ni dans la GPO : penser
 seulement a l'autoriser dans config/policies.yaml si on veut la restreindre).
+
+Ce module porte aussi la verification de conformite (find_missing_sections),
+utilisee par les deux serveurs MCP qui produisent de la documentation : celui a
+partir d'un code fourni, et celui a partir d'un code lu en base.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 
@@ -146,3 +151,42 @@ def get_framework(key: str) -> DocFramework | None:
 
 def available_keys() -> list[str]:
     return sorted(FRAMEWORKS.keys())
+
+
+# --- Verification de conformite ----------------------------------------------
+
+# Mots trop courants pour servir de signature de section.
+STOPWORDS = {
+    "pour", "dans", "avec", "cette", "leurs", "plus", "sans", "elle", "sont",
+    "voir", "tout", "tous", "une", "des", "les", "par", "sur", "que", "qui",
+    "niveau", "seulement", "avant", "apres", "entre",
+}
+
+
+def strip_accents(value: str) -> str:
+    return value.translate(str.maketrans("àâäéèêëîïôöùûüç", "aaaeeeeiioouuuc"))
+
+
+def find_missing_sections(sections: list[str], documentation: str) -> list[str]:
+    """Retourne les sections du framework absentes du document produit.
+
+    Le modele peut tres bien oublier une section : on ne le croit pas sur parole,
+    on verifie dans le texte. C'est le role du code, pas du modele, de garantir
+    la conformite au framework.
+
+    La comparaison porte sur les mots significatifs du libelle de section, ce qui
+    tolere les variations de formulation, la numerotation et les accents.
+    """
+    texte = strip_accents(documentation.lower())
+    manquantes: list[str] = []
+
+    for section in sections:
+        mots = [
+            mot
+            for mot in re.findall(r"[a-z0-9]{4,}", strip_accents(section.lower()))
+            if mot not in STOPWORDS
+        ]
+        if mots and not any(mot in texte for mot in mots):
+            manquantes.append(section)
+
+    return manquantes

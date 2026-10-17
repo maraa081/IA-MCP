@@ -86,6 +86,42 @@ filtrage par la GPO, puis les schemas transmis au modele.
 Le detail est dans [uml/01-sequence-demande.md](uml/01-sequence-demande.md) et
 le parcours commente dans [parcours-requete.md](parcours-requete.md).
 
+## Les deux bases de donnees
+
+Le projet utilise deux bases, qui n'ont rien a voir l'une avec l'autre. Les
+confondre est l'erreur la plus facile a commettre en lisant l'architecture.
+
+| | Base de la gateway | Base de code |
+| --- | --- | --- |
+| Moteur | PostgreSQL (conteneur) | SQLite (fichier) |
+| A quoi elle sert | cles virtuelles, quotas, historique des appels | catalogue des fichiers de code |
+| Qui l'interroge | LiteLLM | le serveur MCP `codedb` |
+| Alimentee par | `scripts/virtual_keys.sh` | `scripts/index_code.py` |
+| En production | PostgreSQL manage | PostgreSQL, alimente par la chaine d'integration |
+
+Autrement dit : l'une gere **qui a le droit de consommer du modele**, l'autre gere
+**ce que les outils savent lire**. Deux problemes de nature differente.
+
+## La boucle de planification
+
+Une demande en une etape ("resume ce texte") se traite en un tour. Une demande en
+deux etapes ("trouve le fichier qui gere les droits, puis resume-le") en demande
+deux : le modele cherche, l'orchestrateur execute, puis le modele est rappele
+avec ce qu'il a trouve.
+
+| Reglage | Effet |
+| --- | --- |
+| `MAX_TOOL_ROUNDS` | nombre maximal de tours de planification (2 par defaut) |
+| `max_tool_calls_per_request` (GPO) | plafond global d'appels executes, tous tours confondus |
+| `SYNTHESIS_ENABLED` | synthese finale par le modele redacteur |
+
+Sortie anticipee : si un outil a deja rendu un texte redige (un resume, une
+documentation) et que la synthese est desactivee, la boucle s'arrete la. C'est ce
+qui rend `--no-synthesis` vraiment plus rapide, sans degrader le resultat.
+
+Le nombre de tours reellement utilises est journalise (champ `rounds`) et affiche
+dans la trace de `scripts/prompt.sh`.
+
 ## Points d'extension
 
 | Besoin | Ce qu'il faut faire | Fichiers concernes |
@@ -131,6 +167,7 @@ Mesures faites sur la pile du labo, modele 4B quantifie Q4, sans GPU :
 | Salutation simple, reponse directe | 34 s |
 | Decision du planificateur, puis appel de l'outil de resume | 38 s + 17 s |
 | Demande de resume complete (sans synthese) | 44 s, dont 16 s pour l'outil |
+| Resume d'un fichier lu dans la base de code (`resumer_code`) | 67 s, dont 44 s pour l'outil |
 | Documentation MADR d'une fonction de 3 lignes | 94 s, dont 74 s pour l'outil |
 | Documentation d'un fichier de 60 lignes (framework arc42) | plusieurs minutes |
 | Meme appel de modele avec la reflexion activee | 3 a 6 fois plus lent, et resultat vide si le budget est serre |

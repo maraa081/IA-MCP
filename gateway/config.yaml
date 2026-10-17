@@ -41,12 +41,16 @@ litellm_settings:
   num_retries: 1
 
 general_settings:
-  # La gateway exige une cle sur chaque appel /v1/*.
-  # Deux niveaux : cle maitre (admin) et cles de service (applications).
+  # Deux niveaux de cle :
+  #   - la cle maitresse (administration de la gateway) ;
+  #   - une cle virtuelle par service, stockee en base, avec ses propres
+  #     modeles autorises, son quota d'appels et son budget.
   master_key: os.environ/GATEWAY_MASTER_KEY
-  database_url: null          # pas de base : labo, cle stockee en memoire
-  # Les cles de service sont declarees comme "virtual keys" en base ; pour le
-  # labo on utilise la cle maitre des services via la variable GATEWAY_API_KEY.
+
+  # Base PostgreSQL des cles virtuelles et de l'historique des appels.
+  # LiteLLM applique les migrations de schema a son demarrage : au premier
+  # lancement, comptez quelques dizaines de secondes.
+  database_url: os.environ/LITELLM_DATABASE_URL
 
 # Journalisation : utile pour tracer les appels modeles dans un SIEM.
 # (en production : log JSON vers stdout, collecte par l'agent de log)

@@ -219,7 +219,12 @@ async def test_le_modele_ne_voit_que_les_outils_autorises(settings: Settings) ->
 async def test_appel_hors_droits_est_refuse_a_l_execution(settings: Settings) -> None:
     """Deuxieme verrou : meme si le modele propose un outil interdit, on refuse."""
     gateway = FakeGateway(
-        replies=[planning_reply("code_to_technical_doc", {"code": "print(1)", "framework": "arc42"})]
+        replies=[
+            planning_reply("code_to_technical_doc", {"code": "print(1)", "framework": "arc42"}),
+            # Second tour : le modele ne conclut pas (contenu vide), ce qui doit
+            # faire retomber le pipeline sur l'explication de l'echec.
+            GatewayReply(model="planner", content=""),
+        ]
     )
     mcp = FakeMcpClient(CAMELOGUE)
     pipeline = await build_pipeline(settings, gateway, mcp)
@@ -351,7 +356,12 @@ async def test_sans_synthese_le_resultat_de_l_outil_est_rendu(settings: Settings
 async def test_echec_d_outil_n_est_pas_un_succes(settings: Settings) -> None:
     """Cas reel : l'outil refuse ses arguments. L'appel doit etre trace en erreur."""
     gateway = FakeGateway(
-        replies=[planning_reply("code_to_technical_doc", {"code": "print(1)", "framework": "arc42"})]
+        replies=[
+            planning_reply("code_to_technical_doc", {"code": "print(1)", "framework": "arc42"}),
+            # Second tour : le modele ne conclut pas (contenu vide), ce qui doit
+            # faire retomber le pipeline sur l'explication de l'echec.
+            GatewayReply(model="planner", content=""),
+        ]
     )
     mcp = FakeMcpClient(
         CAMELOGUE,
@@ -366,10 +376,38 @@ async def test_echec_d_outil_n_est_pas_un_succes(settings: Settings) -> None:
     assert outcome.tools_used == []                      # un echec n'est pas un usage
     assert outcome.tool_trace[0].decision == "error"
     assert "refuse les arguments" in outcome.tool_trace[0].reason
-    assert "audience" in outcome.answer                  # l'utilisateur est informé
+    assert outcome.answer                                # l'utilisateur obtient une reponse
 
+    # L'echec est trace distinctement d'un refus de droits.
     event = json.loads(settings.audit_log_path.read_text(encoding="utf-8").strip().splitlines()[-1])
     assert event["errors"] and not event["tools_executed"]
+    assert event["denials"] == []
+
+
+async def test_explication_d_echec_quand_le_modele_ne_conclut_pas(settings: Settings) -> None:
+    """Sans conclusion du modele, l'utilisateur recoit une explication d'echec.
+
+    On force le mode natif : sans repli JSON, une reponse vide du modele n'est
+    pas remplacee par une seconde tentative, et le pipeline retombe donc sur
+    l'explication construite a partir des erreurs.
+    """
+    settings.planner_mode = "native"
+    gateway = FakeGateway(
+        replies=[
+            planning_reply("code_to_technical_doc", {"code": "print(1)", "framework": "arc42"}),
+            GatewayReply(model="planner", content=""),
+        ]
+    )
+    mcp = FakeMcpClient(
+        CAMELOGUE,
+        error_tools={"code_to_technical_doc": "'audience' doit etre l'un de : developpeur"},
+    )
+    pipeline = await build_pipeline(settings, gateway, mcp)
+
+    outcome = await pipeline.run(user=user("demo", ["analyst"]), message="Documente ce code")
+
+    assert "audience" in outcome.answer
+    assert "Appels en erreur" in outcome.answer
 
 
 async def test_services_startup_expose_les_services(settings: Settings) -> None:
@@ -383,6 +421,7 @@ async def test_services_startup_expose_les_services(settings: Settings) -> None:
         update={
             "mcp_summarizer_url": "http://127.0.0.1:19",
             "mcp_codedoc_url": "http://127.0.0.1:19",
+            "mcp_codedb_url": "http://127.0.0.1:19",
         }
     )
     services = await Services.startup(settings)
@@ -391,5 +430,9 @@ async def test_services_startup_expose_les_services(settings: Settings) -> None:
     # Un serveur injoignable ne doit pas empecher le demarrage : il est marque
     # indisponible et ses outils sortent du catalogue.
     assert services.registry.count() == 0
-    assert services.registry.server_status() == {"summarizer": False, "codedoc": False}
+    assert services.registry.server_status() == {
+        "summarizer": False,
+        "codedoc": False,
+        "codedb": False,
+    }
     await services.shutdown()

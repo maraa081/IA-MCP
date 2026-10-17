@@ -7,7 +7,14 @@ usages specialises :
 """
 
 from .gateway_client import GatewayClient, GatewayReply, GatewayUnavailable, ToolCallRequest
-from .planner import Plan, PlannedCall, ToolPlanner
+from .planner import (
+    RESPOND_DIRECTLY_TOOL,
+    Plan,
+    PlannedCall,
+    ToolPlanner,
+    assistant_tool_call_message,
+    tool_result_message,
+)
 from .synthesizer import Synthesizer
 
 __all__ = [
@@ -18,5 +25,8 @@ __all__ = [
     "Plan",
     "PlannedCall",
     "ToolPlanner",
+    "RESPOND_DIRECTLY_TOOL",
+    "assistant_tool_call_message",
+    "tool_result_message",
     "Synthesizer",
 ]

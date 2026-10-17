@@ -106,6 +106,7 @@ class PlannedCall:
 
     tool: str
     arguments: dict[str, Any]
+    call_id: str = ""
 
 
 @dataclass
@@ -125,8 +126,17 @@ class ToolPlanner:
         self._gateway = gateway
         self._settings = settings
 
-    async def plan(self, *, user_message: str, tools: list[ToolDescriptor]) -> Plan:
-        """Retourne le plan : appels d'outils proposes et/ou reponse directe."""
+    async def plan(
+        self, *, messages: list[dict[str, Any]], tools: list[ToolDescriptor]
+    ) -> Plan:
+        """Retourne le plan pour l'etat courant de la conversation.
+
+        `messages` est la conversation en cours, sans le prompt systeme : au
+        premier tour elle contient la demande de l'utilisateur, aux tours
+        suivants elle contient aussi les resultats d'outils deja obtenus. C'est
+        ce qui permet au modele de chercher un fichier puis de le resumer, en
+        deux tours.
+        """
         if not tools:
             # Aucun outil autorise : on ne laisse meme pas le modele en proposer.
             return Plan(calls=[], content="", mode="no_tools")
@@ -134,18 +144,20 @@ class ToolPlanner:
         mode = self._settings.planner_mode
 
         if mode in ("native", "auto"):
-            plan = await self._plan_native(user_message, tools)
+            plan = await self._plan_native(messages, tools)
             if plan.calls or plan.content:
                 return plan
             if mode == "native":
                 return plan
             # mode auto : le modele n'a rien produit d'exploitable, on retente.
 
-        return await self._plan_json(user_message, tools)
+        return await self._plan_json(messages, tools)
 
     # --- Strategie 1 : function calling natif --------------------------------
 
-    async def _plan_native(self, user_message: str, tools: list[ToolDescriptor]) -> Plan:
+    async def _plan_native(
+        self, messages: list[dict[str, Any]], tools: list[ToolDescriptor]
+    ) -> Plan:
         # Les outils reels, plus l'echappatoire "je reponds directement".
         schemas = [tool.to_openai_schema() for tool in tools]
         schemas.append(RESPOND_DIRECTLY_SCHEMA)
@@ -155,7 +167,7 @@ class ToolPlanner:
                 model=self._settings.planner_model,
                 messages=[
                     {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
+                    *messages,
                 ],
                 tools=schemas,
                 tool_choice=self._settings.planner_tool_choice,
@@ -168,14 +180,23 @@ class ToolPlanner:
         calls: list[PlannedCall] = []
         direct_answer = ""
 
-        for call in reply.tool_calls:
+        for index, call in enumerate(reply.tool_calls):
             if not call.name:
                 continue
             if call.name == RESPOND_DIRECTLY_TOOL:
                 # Le modele a explicitement choisi de repondre sans outil.
                 direct_answer = str(call.arguments.get("answer") or "") or reply.content
                 continue
-            calls.append(PlannedCall(tool=call.name, arguments=dict(call.arguments or {})))
+            calls.append(
+                PlannedCall(
+                    tool=call.name,
+                    arguments=dict(call.arguments or {}),
+                    # Un identifiant est necessaire pour rattacher le resultat a
+                    # l'appel dans le message suivant. On en fabrique un si le
+                    # moteur n'en fournit pas.
+                    call_id=call.call_id or f"call_{index}",
+                )
+            )
 
         return Plan(
             calls=calls,
@@ -186,7 +207,9 @@ class ToolPlanner:
 
     # --- Strategie 2 : plan en JSON dans le texte ----------------------------
 
-    async def _plan_json(self, user_message: str, tools: list[ToolDescriptor]) -> Plan:
+    async def _plan_json(
+        self, messages: list[dict[str, Any]], tools: list[ToolDescriptor]
+    ) -> Plan:
         catalogue = "\n".join(
             f"- {tool.name} (serveur {tool.server}) : {tool.description}\n"
             f"  schema : {json.dumps(tool.input_schema, ensure_ascii=False)}"
@@ -197,12 +220,11 @@ class ToolPlanner:
                 model=self._settings.planner_model,
                 messages=[
                     {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
+                    *messages,
                     {
                         "role": "user",
                         "content": (
-                            f"Outils disponibles :\n{catalogue}\n\n"
-                            f"{JSON_PLAN_INSTRUCTION}\n\n"
-                            f"Demande de l'utilisateur : {user_message}"
+                            f"Outils disponibles :\n{catalogue}\n\n{JSON_PLAN_INSTRUCTION}"
                         ),
                     },
                 ],
@@ -219,7 +241,7 @@ class ToolPlanner:
             return Plan(calls=[], content=reply.content, mode="json_plain", raw_content=reply.content)
 
         calls = []
-        for item in parsed.get("tool_calls") or []:
+        for index, item in enumerate(parsed.get("tool_calls") or []):
             if not isinstance(item, dict):
                 continue
             tool_name = str(item.get("tool") or item.get("name") or "")
@@ -230,6 +252,7 @@ class ToolPlanner:
                 PlannedCall(
                     tool=tool_name,
                     arguments=arguments if isinstance(arguments, dict) else {},
+                    call_id=f"call_{index}",
                 )
             )
 
@@ -240,6 +263,36 @@ class ToolPlanner:
             mode="json",
             raw_content=reply.content,
         )
+
+
+# --- Protocole de conversation avec les outils -------------------------------
+
+def assistant_tool_call_message(calls: list[PlannedCall]) -> dict[str, Any]:
+    """Message assistant decrivant les appels demandes.
+
+    Format standard des API de type OpenAI : c'est ce qui permet au moteur de
+    rattacher chaque resultat a l'appel correspondant au tour suivant.
+    """
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": call.call_id,
+                "type": "function",
+                "function": {
+                    "name": call.tool,
+                    "arguments": json.dumps(call.arguments, ensure_ascii=False),
+                },
+            }
+            for call in calls
+        ],
+    }
+
+
+def tool_result_message(call: PlannedCall, contenu: str) -> dict[str, Any]:
+    """Message portant le resultat d'un appel d'outil."""
+    return {"role": "tool", "tool_call_id": call.call_id, "content": contenu}
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:

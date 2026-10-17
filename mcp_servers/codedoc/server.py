@@ -11,12 +11,15 @@ Lancement :
 from __future__ import annotations
 
 import argparse
-import re
 from typing import Literal
 
 from mcp.server.mcpserver import MCPServer
 
-from mcp_servers.codedoc.frameworks import FRAMEWORKS, available_keys, get_framework
+from mcp_servers.codedoc.frameworks import (
+    available_keys,
+    find_missing_sections,
+    get_framework,
+)
 from mcp_servers.codedoc.prompts import build_user_prompt
 from mcp_servers.common import complete, load_settings
 
@@ -114,7 +117,7 @@ async def code_to_technical_doc(
         "language": language,
         "documentation": documentation,
         "expected_sections": doc_framework.sections,
-        "missing_sections": _find_missing_sections(doc_framework.sections, documentation),
+        "missing_sections": find_missing_sections(doc_framework.sections, documentation),
         "input_chars": len(code),
         "model": settings.writer_model,
     }
@@ -134,42 +137,6 @@ def _validate(code: str, audience: str) -> str | None:
     if audience not in ALLOWED_AUDIENCES:
         return f"'audience' doit etre l'un de : {', '.join(ALLOWED_AUDIENCES)}"
     return None
-
-
-def _find_missing_sections(sections: list[str], documentation: str) -> list[str]:
-    """Verifie que chaque section attendue apparait bien dans le document.
-
-    Le modele peut tres bien oublier une section : on ne le croit pas sur
-    parole, on verifie dans le texte produit. C'est le role du code, pas du
-    modele, de garantir la conformite au framework.
-    """
-    text = documentation.lower()
-    missing: list[str] = []
-
-    for section in sections:
-        # On compare sur les mots significatifs du libelle de section, pour
-        # tolerer les variations de formulation (numerotation, casse, accents).
-        keywords = [
-            word
-            for word in re.findall(r"[a-z0-9]{4,}", _strip_accents(section.lower()))
-            if word not in _STOPWORDS
-        ]
-        if keywords and not any(word in _strip_accents(text) for word in keywords):
-            missing.append(section)
-
-    return missing
-
-
-def _strip_accents(value: str) -> str:
-    table = str.maketrans("àâäéèêëîïôöùûüç", "aaaeeeeiioouuuc")
-    return value.translate(table)
-
-
-_STOPWORDS = {
-    "pour", "dans", "avec", "cette", "leurs", "plus", "sans", "elle", "sont",
-    "voir", "tout", "tous", "une", "des", "les", "par", "sur", "que", "qui",
-    "niveau", "seulement", "avant", "apres", "entre",
-}
 
 
 def main() -> None:

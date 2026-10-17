@@ -60,7 +60,7 @@ async def test_l_echappatoire_est_transmise_au_modele(settings: Settings) -> Non
     )
     planner = ToolPlanner(gateway, settings)          # type: ignore[arg-type]
 
-    await planner.plan(user_message="resume ceci", tools=[descriptor("summarize_text")])
+    await planner.plan(messages=[{"role": "user", "content": "resume ceci"}], tools=[descriptor("summarize_text")])
 
     schemas = gateway.calls[0]["tools"]
     noms = [schema["function"]["name"] for schema in schemas]
@@ -81,7 +81,7 @@ async def test_appel_d_outil_reel_est_transmis(settings: Settings) -> None:
     )
     planner = ToolPlanner(gateway, settings)          # type: ignore[arg-type]
 
-    plan = await planner.plan(user_message="resume", tools=[descriptor("summarize_text")])
+    plan = await planner.plan(messages=[{"role": "user", "content": "resume"}], tools=[descriptor("summarize_text")])
 
     assert len(plan.calls) == 1
     assert plan.calls[0].tool == "summarize_text"
@@ -101,7 +101,7 @@ async def test_reponse_directe_via_l_echappatoire(settings: Settings) -> None:
     )
     planner = ToolPlanner(gateway, settings)          # type: ignore[arg-type]
 
-    plan = await planner.plan(user_message="bonjour", tools=[descriptor("summarize_text")])
+    plan = await planner.plan(messages=[{"role": "user", "content": "bonjour"}], tools=[descriptor("summarize_text")])
 
     assert plan.calls == []                            # aucune action declenchee
     assert plan.content == "Bonjour, comment puis-je aider ?"
@@ -116,7 +116,7 @@ async def test_l_echappatoire_n_est_jamais_executee_comme_outil(settings: Settin
     )
     planner = ToolPlanner(gateway, settings)          # type: ignore[arg-type]
 
-    plan = await planner.plan(user_message="mixte", tools=[descriptor("summarize_text")])
+    plan = await planner.plan(messages=[{"role": "user", "content": "mixte"}], tools=[descriptor("summarize_text")])
 
     noms = [call.tool for call in plan.calls]
     assert RESPOND_DIRECTLY_TOOL not in noms
@@ -128,7 +128,7 @@ async def test_aucun_outil_autorise_ne_consulte_pas_le_modele(settings: Settings
     gateway = RecordingGateway(GatewayReply(model="planner", content="peu importe"))
     planner = ToolPlanner(gateway, settings)          # type: ignore[arg-type]
 
-    plan = await planner.plan(user_message="resume", tools=[])
+    plan = await planner.plan(messages=[{"role": "user", "content": "resume"}], tools=[])
 
     assert plan.mode == "no_tools"
     assert plan.calls == []

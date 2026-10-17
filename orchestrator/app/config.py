@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # c'est ce reglage qui fait que le modele appelle l'outil de resume au lieu de
     # rediger le resume lui-meme. Voir llm/planner.py.
     planner_tool_choice: Literal["auto", "required"] = "required"
+    # Nombre maximal de tours de planification par requete. Au-dela, la boucle
+    # s'arrete et la reponse est composee a partir de ce qui a ete obtenu. Deux
+    # tours suffisent au cas d'usage courant : chercher un fichier en base, puis
+    # le resumer. Une borne est indispensable : sans elle, une erreur de
+    # modelisation ferait tourner l'orchestrateur indefiniment.
+    max_tool_rounds: int = 2
     # Ollama : desactiver la phase de reflexion accelere fortement la decision.
     ollama_disable_thinking: bool = True
     llm_timeout_seconds: float = 300.0
@@ -67,6 +73,7 @@ class Settings(BaseSettings):
     # --- Serveurs MCP --------------------------------------------------------
     mcp_summarizer_url: str = "http://127.0.0.1:9101/mcp"
     mcp_codedoc_url: str = "http://127.0.0.1:9102/mcp"
+    mcp_codedb_url: str = "http://127.0.0.1:9103/mcp"
     mcp_timeout_seconds: float = 300.0
     mcp_discovery_timeout_seconds: float = 10.0
 
@@ -88,10 +95,15 @@ class Settings(BaseSettings):
 
     @property
     def mcp_servers(self) -> dict[str, str]:
-        """Catalogue des serveurs MCP : nom logique -> URL du point d'entree."""
+        """Catalogue des serveurs MCP : nom logique -> URL du point d'entree.
+
+        Ajouter un serveur ici suffit a l'exposer : le registre decouvre ses
+        outils au demarrage, et la GPO decide qui y a acces.
+        """
         return {
             "summarizer": self.mcp_summarizer_url,
             "codedoc": self.mcp_codedoc_url,
+            "codedb": self.mcp_codedb_url,
         }
 
     @property

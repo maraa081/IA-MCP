@@ -37,10 +37,42 @@ uniquement**. Exemple pour passer sur un modele plus gros pour la redaction :
 | Cle maitresse | `GATEWAY_MASTER_KEY` | Administration de la gateway |
 | Cles de service | `GATEWAY_API_KEY` | Appels des applications |
 
-**Limite du labo, a connaitre.** Sans base de donnees, LiteLLM n'accepte que la
-cle maitresse : toute autre cle produit l'erreur `no_db_connection`, parce qu'il
-cherche cette cle dans une table qu'il n'a pas. Le `.env` du labo utilise donc la
-cle maitresse comme cle interne, et la gateway n'ecoute que sur `127.0.0.1`.
+**Comment c'est mis en place.** Une base PostgreSQL tourne en conteneur sur
+`127.0.0.1:5433`, avec un volume persistant. Deux cles virtuelles y sont
+stockees, une par service :
+
+| Cle | Modeles autorises | Debit | Budget |
+| --- | --- | --- | --- |
+| `orchestrateur` | `planner`, `writer` | 120 req/min | 20 sur 30 jours |
+| `mcp-serveurs` | `writer` seulement | 60 req/min | 10 sur 30 jours |
+
+Les serveurs MCP utilisent leur propre cle (via `MCP_GATEWAY_API_KEY`) : ils
+n'ont pas besoin du modele de planification, seulement du modele de redaction.
+Le moindre privilege s'applique donc aussi au niveau de la gateway.
+
+Mise en place (deja faite dans ce labo) :
+
+```bash
+./scripts/setup_db.sh      # conteneur PostgreSQL + chaine de connexion dans .env
+./scripts/enable_db.sh     # client prisma + redemarrage de la gateway
+./scripts/virtual_keys.sh  # creation des cles et ecriture dans .env
+```
+
+Preuve que la restriction fonctionne, en une commande :
+
+```bash
+# avec la cle des serveurs MCP, demander l'alias 'planner' doit etre refuse
+curl -s http://127.0.0.1:4000/v1/chat/completions \
+  --oauth2-bearer "$MCP_GATEWAY_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"planner","messages":[{"role":"user","content":"OK"}],"max_tokens":5}' \
+  | jq -r '.error.type'
+# -> key_model_access_denied
+```
+
+**Un piege a connaitre** : avec une installation de LiteLLM par `pip`, le client
+prisma doit etre genere a la main (`prisma generate`, voir `scripts/enable_db.sh`).
+Dans l'image Docker officielle, il est deja cuit au build, ce qui explique que le
+probleme n'apparaisse pas dans la documentation courante.
 
 C'est acceptable pour un labo sur une seule machine, et inacceptable des que
 plusieurs services ou plusieurs personnes partagent la gateway.
@@ -106,9 +138,18 @@ partagent. Pour avoir une cle par service, avec quotas et modeles autorises par
 cle, il faut une base de donnees. Ne jamais ecrire cette cle dans un fichier
 versionne, ni la coller dans une conversation.
 
-## Passer a une vraie gestion de cles (production)
+## Passer a une gestion de cles complete (production)
 
-Deux modifications suffisent.
+La base est en place. Ce qui reste a ajouter, par ordre d'interet :
+
+1. **Une cle par personne ou par equipe**, plutot qu'une cle par service, avec
+   des budgets partages. LiteLLM gere des organisations et des equipes.
+2. **La rotation des cles** : generer la nouvelle, la deployer, revoquer
+   l'ancienne. A automatiser, sans quoi la rotation ne se fait jamais.
+3. **Une base managee** avec sauvegarde et replicat, plutot qu'un conteneur sur
+   la meme machine que la gateway.
+4. **Le suivi de consommation** par cle, remonte dans la supervision. C'est le
+   seul moyen de reperer un usage anormal avant la facture.
 
 1. Ajouter une base dans `gateway/config.yaml` :
 

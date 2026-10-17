@@ -76,6 +76,54 @@ sequenceDiagram
     Note right of API: aucun appel MCP n'est emis
 ```
 
+## La boucle de planification
+
+Depuis l'ajout du serveur de code en base, l'orchestrateur ne se contente plus
+d'un seul tour : il faut d'abord trouver le fichier, puis le lire pour le
+resumer. Le modele est donc rappele avec les resultats du tour precedent.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant API as Orchestrateur
+    participant PLAN as Planificateur
+    participant MCP as Serveurs MCP
+    participant GW as Gateway + Ollama
+
+    API->>PLAN: tour 1 : conversation = [demande]
+    PLAN->>GW: plan(conversation, outils autorises)
+    GW-->>PLAN: appelle chercher_code("politique de droits")
+    PLAN-->>API: Plan{appels:[chercher_code]}
+
+    API->>API: autorisation (GPO) puis execution MCP
+    API->>MCP: tools/call chercher_code
+    MCP-->>API: 3 fichiers, avec leur reference
+
+    API->>PLAN: tour 2 : conversation + resultats de l'outil
+    PLAN->>GW: plan(conversation enrichie)
+    GW-->>PLAN: appelle resumer_code(reference="policy/engine.py")
+    PLAN-->>API: Plan{appels:[resumer_code]}
+
+    API->>MCP: tools/call resumer_code
+    MCP-->>API: resume du fichier lu en base
+
+    API->>API: borne atteinte (2 tours) :
+    API-->>API: reponse composee a partir des resultats
+```
+
+Trois points a retenir :
+
+- **la boucle est bornee** (`max_tool_rounds`, 2 par defaut). Sans borne, une
+erreur de modelisation ferait tourner l'orchestrateur indefiniment ;
+- **chaque tour repasse par la GPO**. Un droit retire au tour 1 le reste au tour
+2 : l'autorisation n'est pas mise en cache ;
+- **les refus sont reinjectes dans la conversation**. Le modele voit qu'un outil
+a ete refuse, avec la raison, et peut se corriger au tour suivant. C'est aussi
+ce qui permet de comprendre, dans les journaux, pourquoi il a change d'avis.
+
+Le journal d'audit porte le champ `rounds` : une requete a trois tours signale
+souvent une tache mal cadree ou un outil qui ne repond pas comme attendu.
+
 ## Ce que le diagramme met en evidence
 
 **Trois appels au modele pour une seule demande.** Un pour choisir l'outil, un

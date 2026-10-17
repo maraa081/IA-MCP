@@ -124,6 +124,17 @@ done
   && ok "outils MCP decouverts : $(echo "$HEALTH" | jq -r '.tools_known')" \
   || ko "moins de deux outils decouverts"
 
+# Index de code du serveur codedb : sans lui, ses outils repondent mais ne
+# trouvent rien (panne silencieuse).
+if [[ -f "$PROJECT_ROOT/var/codedb.sqlite" ]]; then
+  ENTREES=$("$PY" -c "import sys; sys.path.insert(0, '$PROJECT_ROOT'); from mcp_servers.codedb.database import CodeDatabase; print(CodeDatabase('$PROJECT_ROOT/var/codedb.sqlite').inventaire()['entrees'])" 2>/dev/null)
+  [[ "${ENTREES:-0}" -gt 0 ]] 2>/dev/null \
+    && ok "index de code : $ENTREES entree(s)" \
+    || ko "index de code vide : lancer 'python scripts/index_code.py'"
+else
+  ko "index de code absent : lancer 'python scripts/index_code.py'"
+fi
+
 # --- 4. Authentification ------------------------------------------------------
 title "4. Authentification JWT"
 
@@ -176,8 +187,9 @@ reponse_outils() {
 OUTILS_ANALYST=$(reponse_outils "$TOKEN")
 if echo "$OUTILS_ANALYST" | jq -e 'type == "array"' >/dev/null 2>&1; then
   NOMS_ANALYST=$(echo "$OUTILS_ANALYST" | jq -r '[.[].name] | sort | join(",")')
-  if [[ "$NOMS_ANALYST" == "code_to_technical_doc,summarize_text" ]]; then
-    ok "role analyst : deux outils visibles"
+  ATTENDU_ANALYST="chercher_code,code_disponible,code_to_technical_doc,documenter_code,resumer_code,summarize_text"
+  if [[ "$NOMS_ANALYST" == "$ATTENDU_ANALYST" ]]; then
+    ok "role analyst : les 6 outils attendus"
   else
     ko "role analyst : outils inattendus ($NOMS_ANALYST)"
   fi
@@ -186,9 +198,10 @@ else
 fi
 
 TOKEN_READER=$("$PY" scripts/mint_token.py --sub lecteur --roles reader --quiet 2>/dev/null)
-NOMS_READER=$(reponse_outils "$TOKEN_READER" | jq -r '[.[].name] | join(",")' 2>/dev/null)
-[[ "$NOMS_READER" == "summarize_text" ]] \
-  && ok "role reader : un seul outil visible (code_to_technical_doc masque)" \
+NOMS_READER=$(reponse_outils "$TOKEN_READER" | jq -r '[.[].name] | sort | join(",")' 2>/dev/null)
+ATTENDU_READER="chercher_code,code_disponible,resumer_code,summarize_text"
+[[ "$NOMS_READER" == "$ATTENDU_READER" ]] \
+  && ok "role reader : lecture seule, ni documenter_code ni code_to_technical_doc" \
   || ko "role reader : outils inattendus ($NOMS_READER)"
 
 TOKEN_INCONNU=$("$PY" scripts/mint_token.py --sub inconnu --roles role-inexistant --quiet 2>/dev/null)

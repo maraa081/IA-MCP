@@ -16,7 +16,7 @@ version: 1
 roles:
 
   analyst:
-    description: "Analyste : peut resumer un texte et genere de la documentation technique."
+    description: "Analyste : peut resumer un texte, documenter du code, et interroger l'index de code."
     tools:
       summarize_text:
         max_input_chars: 20000        # taille max du champ "text"
@@ -29,16 +29,43 @@ roles:
         allowed_frameworks: [diataxis, arc42, c4, madr, sphinx]
         rate_limit: { requests: 10, window_seconds: 60 }
 
+      # --- Outils adosses a la base de code -------------------------------
+      # Ils prennent une REFERENCE de fichier, jamais du code. La limite de
+      # taille porte donc sur la reference, pas sur le contenu : c'est la base
+      # qui porte le volume, pas la fenetre de contexte du modele.
+      code_disponible:
+        max_calls_per_request: 1
+        rate_limit: { requests: 30, window_seconds: 60 }
+      chercher_code:
+        max_calls_per_request: 2
+        rate_limit: { requests: 30, window_seconds: 60 }
+      resumer_code:
+        max_calls_per_request: 2
+        rate_limit: { requests: 15, window_seconds: 60 }
+      documenter_code:
+        max_calls_per_request: 1
+        allowed_frameworks: [diataxis, arc42, c4, madr, sphinx]
+        rate_limit: { requests: 8, window_seconds: 60 }
+
   reader:
-    description: "Lecture seule : uniquement le resume, contenu plus court."
+    description: "Lecture seule : consultation de l'index de code et resume. Pas de documentation."
     tools:
       summarize_text:
         max_input_chars: 8000
         max_calls_per_request: 1
         rate_limit: { requests: 30, window_seconds: 60 }
+      code_disponible:
+        max_calls_per_request: 1
+        rate_limit: { requests: 20, window_seconds: 60 }
+      chercher_code:
+        max_calls_per_request: 2
+        rate_limit: { requests: 20, window_seconds: 60 }
+      resumer_code:
+        max_calls_per_request: 1
+        rate_limit: { requests: 10, window_seconds: 60 }
 
 # --- Plafonds globaux (appliques avant les regles par role) ------------------
 limits:
   max_prompt_chars: 40000                 # taille max du message utilisateur
-  max_tool_calls_per_request: 3           # garde-fou anti-boucle
+  max_tool_calls_per_request: 4           # garde-fou anti-boucle
   allowed_models: [planner, writer]       # alias de modeles autorises cote gateway
