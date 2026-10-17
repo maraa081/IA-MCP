@@ -3,6 +3,8 @@
 Etat du labo. Tout tourne sur une seule machine, sur l'interface de bouclage
 (loopback) : les services ne sont pas joignables depuis le reseau.
 
+![04-deploiement](04-deploiement.png)
+
 ```mermaid
 flowchart TB
     subgraph POSTE["Machine hote (labo)"]

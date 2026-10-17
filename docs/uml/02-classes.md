@@ -4,6 +4,8 @@ Vue des objets principaux et de leurs relations. Les noms correspondent
 exactement aux modules du depot, ce qui permet de passer du diagramme au code
 sans chercher.
 
+![02-classes](02-classes.png)
+
 ```mermaid
 classDiagram
     direction TB

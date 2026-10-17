@@ -3,6 +3,8 @@
 Scenario : `demo` (role `analyst`) envoie "resume moi ce document".
 C'est le diagramme de reference du projet : tout le reste decoule de ce trajet.
 
+![01-sequence-demande-1](01-sequence-demande-1.png)
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -81,6 +83,8 @@ sequenceDiagram
 Depuis l'ajout du serveur de code en base, l'orchestrateur ne se contente plus
 d'un seul tour : il faut d'abord trouver le fichier, puis le lire pour le
 resumer. Le modele est donc rappele avec les resultats du tour precedent.
+
+![01-sequence-demande-2](01-sequence-demande-2.png)
 
 ```mermaid
 sequenceDiagram

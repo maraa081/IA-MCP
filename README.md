@@ -353,16 +353,17 @@ conseille.
 
 ## Diagrammes
 
-| Diagramme | Fichier |
-| --- | --- |
-| Sequence d'une demande | [docs/uml/01-sequence-demande.md](docs/uml/01-sequence-demande.md) |
-| Diagramme de classes | [docs/uml/02-classes.md](docs/uml/02-classes.md) |
-| Diagramme d'activite (choix et autorisation des outils) | [docs/uml/03-activite-outils.md](docs/uml/03-activite-outils.md) |
-| Deploiement | [docs/uml/04-deploiement.md](docs/uml/04-deploiement.md) |
-| Parcours commente d'une requete reelle | [docs/parcours-requete.md](docs/parcours-requete.md) |
+| Diagramme | Image | Source (editable) |
+| --- | --- | --- |
+| Sequence d'une demande | [PNG](docs/uml/01-sequence-demande-1.png) | [Markdown](docs/uml/01-sequence-demande.md) |
+| Diagramme de classes | [PNG](docs/uml/02-classes.png) | [Markdown](docs/uml/02-classes.md) |
+| Diagramme d'activite (choix et autorisation des outils) | [PNG](docs/uml/03-activite-outils.png) | [Markdown](docs/uml/03-activite-outils.md) |
+| Deploiement | [PNG](docs/uml/04-deploiement.png) | [Markdown](docs/uml/04-deploiement.md) |
+| Parcours commente d'une requete reelle | - | [Markdown](docs/parcours-requete.md) |
 
-Les diagrammes sont en Mermaid : ils s'affichent directement sur GitHub et se
-modifient comme du texte.
+Les diagrammes sont ecrits en Mermaid (source texte, versionnable) et rendus en
+PNG a cote. Quand le source change, regenerer l'image : extraire le bloc Mermaid
+dans un fichier `.mmd` puis `curl -A 'Mozilla/5.0' "https://mermaid.ink/img/<base64 url-safe du source>?bgColor=white&type=png" -o image.png`.
 
 ## Tests
 

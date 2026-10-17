@@ -4,6 +4,8 @@ Ce diagramme repond a la question "que se passe-t-il exactement entre le moment
 ou l'utilisateur envoie son message et le moment ou un outil est appele ?", avec
 les points de refus.
 
+![03-activite-outils](03-activite-outils.png)
+
 ```mermaid
 flowchart TD
     START([Message recu + jeton JWT]) --> VERIFY{Signature, expiration,<br/>audience, claims,<br/>jti revoque ?}
