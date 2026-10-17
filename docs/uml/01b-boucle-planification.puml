@@ -1,0 +1,36 @@
+@startuml 01b-boucle-planification
+title Boucle de planification (chercher un fichier puis le resumer)
+
+autonumber
+participant "Orchestrateur" as API
+participant "Planificateur" as PLAN
+participant "Serveurs MCP" as MCP
+participant "Gateway + Ollama" as GW
+
+API -> PLAN : tour 1 : conversation = [demande]
+PLAN -> GW : plan(conversation, outils autorises)
+GW --> PLAN : appelle chercher_code("politique de droits")
+PLAN --> API : Plan{appels: [chercher_code]}
+
+API -> API : autorisation (GPO) puis execution MCP
+API -> MCP : tools/call chercher_code
+MCP --> API : 3 fichiers, avec leur reference
+
+API -> PLAN : tour 2 : conversation + resultats de l'outil
+PLAN -> GW : plan(conversation enrichie)
+GW --> PLAN : appelle resumer_code(reference="policy/engine.py")
+PLAN --> API : Plan{appels: [resumer_code]}
+
+API -> MCP : tools/call resumer_code
+MCP --> API : resume du fichier lu en base
+
+API -> API : borne atteinte (2 tours)
+API --> API : reponse composee a partir des resultats
+
+note over API, MCP
+  Chaque tour repasse par la GPO.
+  Un refus est reinjecte dans la conversation :
+  le modele peut se corriger au tour suivant.
+end note
+
+@enduml

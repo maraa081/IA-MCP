@@ -6,34 +6,9 @@ machine : il n'est joignable que par Open WebUI. Les services d'inference et les
 serveurs MCP restent dans WSL, joints par l'IP de WSL.
 
 ![04-deploiement](04-deploiement.png)
+Source PlantUML : [04-deploiement.puml](04-deploiement.puml)
 
-```mermaid
-flowchart TB
-    NAV["Navigateur<br/>http://localhost:3000"]
 
-    subgraph DOCKER["Docker Desktop - reseau mcp-lab"]
-        WEB["Open WebUI<br/>:3000 (publie)"]
-        ORCH["Orchestrateur FastAPI<br/>conteneur orchestrator-lab<br/>aucun port publie"]
-    end
-
-    subgraph WSL["WSL2 (hote)"]
-        GW["Gateway LiteLLM<br/>:4000"]
-        M1["Serveur MCP summarizer<br/>:9101/mcp"]
-        M2["Serveur MCP codedoc<br/>:9102/mcp"]
-        M3["Serveur MCP codedb<br/>:9103/mcp"]
-        OLL["Ollama<br/>:11434"]
-        FS[("Fichiers locaux<br/>config/policies.yaml<br/>config/keys/<br/>var/logs/audit.jsonl")]
-    end
-
-    NAV -- "HTTP" --> WEB
-    WEB -- "OpenAI + JWT" --> ORCH
-    ORCH -- "HTTP + cle de service" --> GW
-    GW -- "API Ollama" --> OLL
-    ORCH -- "MCP streamable HTTP" --> M1
-    ORCH -- "MCP streamable HTTP" --> M2
-    ORCH -- "MCP streamable HTTP" --> M3
-    ORCH -- "lecture / ecriture" --> FS
-```
 
 ## Trois frontieres de reseau, trois niveaux de confiance
 

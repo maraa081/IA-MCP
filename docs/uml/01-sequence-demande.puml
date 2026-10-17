@@ -1,0 +1,81 @@
+@startuml 01-sequence-demande
+title Une demande de bout en bout (scenario demo / analyst)
+
+autonumber
+actor "Utilisateur\n(demo / analyst)" as U
+participant "Orchestrateur\nFastAPI" as API
+participant "Securite JWT\n(RS256)" as JWT
+participant "Politique\n(policies.yaml)" as GPO
+participant "Planificateur\n(llm/planner.py)" as PLAN
+participant "Gateway LiteLLM\n:4000" as GW
+participant "Ollama\nqwen3.5:4b" as LLM
+participant "Serveur MCP\nsummarizer :9101" as MCP
+participant "Journal d'audit\naudit.jsonl" as AUD
+
+== 1. Authentification ==
+
+U -> API : POST /auth/token {username, password}
+API -> API : comparaison a temps constant
+API -> JWT : issue_access_token(sub, roles)
+JWT --> API : jeton signe RS256 + jti
+API --> U : access_token (duree 900 s)
+
+== 2. Demande metier ==
+
+U -> API : POST /v1/chat + Bearer <jeton>
+API -> JWT : decode(jeton)
+JWT -> JWT : signature, exp, iss, aud, claims obligatoires
+JWT -> JWT : jti present dans la liste de revocation ?
+JWT --> API : AuthenticatedUser{sub, roles, jti}
+
+API -> GPO : check_prompt(message)
+GPO --> API : taille conforme
+
+API -> GPO : grants_for(["analyst"])
+GPO --> API : {summarize_text, code_to_technical_doc}
+
+API -> API : registre MCP filtre sur ces droits
+note right of API : le modele ne verra QUE ces outils
+
+== 3. Choix des outils ==
+
+API -> PLAN : plan(message, outils autorises)
+PLAN -> GW : POST /v1/chat/completions (tools=[...])
+GW -> LLM : requete de chat (alias "planner")
+LLM --> GW : tool_calls: summarize_text(text=...)
+GW --> PLAN : reponse normalisee
+PLAN --> API : Plan{appels: [summarize_text]}
+
+== 4. Autorisation puis execution ==
+
+API -> GPO : check_tool_call(tool, arguments, appels deja faits)
+GPO -> GPO : droit du role, quota, taille, valeurs, debit
+GPO --> API : Decision(allowed=true)
+
+API -> MCP : JSON-RPC tools/call summarize_text
+MCP -> GW : POST /v1/chat/completions (alias "writer")
+GW -> LLM : prompt de resume
+LLM --> GW : texte du resume
+GW --> MCP : reponse
+MCP --> API : resultat structure {summary, ...}
+
+== 5. Synthese ==
+
+API -> GW : composition de la reponse finale
+GW -> LLM : prompt de synthese
+LLM --> GW : reponse redigee
+GW --> API : texte final
+
+== 6. Tracabilite ==
+
+API -> AUD : {sub, roles, outils proposes, executes, refus, duree}
+API --> U : {answer, tools_used, tool_trace, latency_ms}
+
+== Cas d'un appel refuse ==
+
+API -> GPO : check_tool_call(outil non accorde)
+GPO --> API : Decision(allowed=false, raison)
+API -> AUD : denials=[...]
+note right of API : aucun appel MCP n'est emis
+
+@enduml

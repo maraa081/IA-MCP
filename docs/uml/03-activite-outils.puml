@@ -1,0 +1,75 @@
+@startuml 03-activite-outils
+title Choix et autorisation des outils : les points de refus
+
+start
+
+:Message recu + jeton JWT;
+
+if (Signature, expiration, audience,\nclaims, jti revoque ?) then (non)
+  :401 Unauthorized\nraison volontairement generique;
+  stop
+else (oui)
+endif
+
+if (Taille du message sous le plafond GPO ?) then (non)
+  :403 + X-Policy-Rule :\nlimits.max_prompt_chars;
+  stop
+else (oui)
+endif
+
+:Calcul des droits :\nunion des roles du jeton;
+:Filtrage du catalogue MCP :\nseuls les outils accordes sont transmis au modele;
+
+if (Outils visibles ?) then (non)
+  :Le modele est appele sans outil\nil repond en conversation;
+else (oui)
+  :Le modele propose des appels d'outils;
+  while (Appel propose restant ?) is (oui)
+    if (L'outil existe dans le registre ?) then (non)
+      :Refus : outil inconnu;
+    else (oui)
+      if (L'outil est accorde aux roles du porteur ?) then (non)
+        :Refus : non accorde\ndeny by default;
+      else (oui)
+        if (Quota d'appels par requete respecte ?) then (non)
+          :Refus : quota atteint;
+        else (oui)
+          if (Taille des arguments sous la limite de l'outil ?) then (non)
+            :Refus : entree trop longue;
+          else (oui)
+            if (Valeurs autorisees\nex : framework ?) then (non)
+              :Refus : valeur hors liste blanche;
+            else (oui)
+              if (Limite de debit de l'utilisateur ?) then (non)
+                :Refus : trop d'appels;
+              else (oui)
+                :Appel MCP tools/call;
+                if (Succes ?) then (oui)
+                  :Resultat collecte;
+                else (non)
+                  :Trace en erreur;
+                endif
+              endif
+            endif
+          endif
+        endif
+      endif
+    endif
+  endwhile (non)
+endif
+
+if (Un resultat disponible ?) then (oui)
+  :Synthese par le modele redacteur;
+else (non)
+  if (Le modele a repondu ?) then (oui)
+    :Reponse directe du modele;
+  else (non)
+    :Explication du refus a l'utilisateur;
+  endif
+endif
+
+:Ecriture du journal d'audit;
+:Reponse HTTP;
+stop
+
+@enduml

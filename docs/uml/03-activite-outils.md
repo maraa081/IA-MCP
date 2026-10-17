@@ -5,65 +5,9 @@ ou l'utilisateur envoie son message et le moment ou un outil est appele ?", avec
 les points de refus.
 
 ![03-activite-outils](03-activite-outils.png)
+Source PlantUML : [03-activite-outils.puml](03-activite-outils.puml)
 
-```mermaid
-flowchart TD
-    START([Message recu + jeton JWT]) --> VERIFY{Signature, expiration,<br/>audience, claims,<br/>jti revoque ?}
-    VERIFY -- non --> R401[401 Unauthorized<br/>raison volontairement generique]
-    VERIFY -- oui --> SIZE{Taille du message<br/>sous le plafond GPO ?}
-    SIZE -- non --> R403A[403 + X-Policy-Rule:<br/>limits.max_prompt_chars]
-    SIZE -- oui --> GRANTS[Calcul des droits :<br/>union des roles du jeton]
 
-    GRANTS --> VISIBLE[Filtrage du catalogue MCP :<br/>seuls les outils accordes<br/>sont transmis au modele]
-
-    VISIBLE --> ANY{Outils<br/>visibles ?}
-    ANY -- non --> DIRECT[Le modele est appele sans outil :<br/>il repond en conversation]
-    ANY -- oui --> PLAN[Le modele propose<br/>des appels d'outils]
-
-    PLAN --> LOOP{Pour chaque appel propose}
-    LOOP --> KNOWN{L'outil existe<br/>dans le registre ?}
-    KNOWN -- non --> D1[Refus : outil inconnu]
-    KNOWN -- oui --> GRANT{L'outil est-il accorde<br/>aux roles du porteur ?}
-
-    GRANT -- non --> D2[Refus : non accorde<br/>deny by default]
-    GRANT -- oui --> QUOTA{Quota d'appels<br/>par requete respecte ?}
-    QUOTA -- non --> D3[Refus : quota atteint]
-    QUOTA -- oui --> FITS{Taille des arguments<br/>sous la limite de l'outil ?}
-    FITS -- non --> D4[Refus : entree trop longue]
-    FITS -- oui --> VALUES{Valeurs autorisees<br/>ex : framework ?}
-    VALUES -- non --> D5[Refus : valeur hors liste blanche]
-    VALUES -- oui --> RATE{Limite de debit<br/>de l'utilisateur ?}
-    RATE -- non --> D6[Refus : trop d'appels]
-    RATE -- oui --> CALL[Appel MCP tools/call]
-
-    CALL --> RESULT{Succes ?}
-    RESULT -- non --> D7[Trace en erreur]
-    RESULT -- oui --> COLLECT[Resultat collecte]
-
-    D1 --> NEXT[Appel suivant]
-    D2 --> NEXT
-    D3 --> NEXT
-    D4 --> NEXT
-    D5 --> NEXT
-    D6 --> NEXT
-    D7 --> NEXT
-    COLLECT --> NEXT
-    NEXT --> LOOP
-
-    LOOP -- termine --> HAVE{Un resultat<br/>disponible ?}
-    HAVE -- non, mais le modele<br/>a repondu --> ANSWER1[Reponse directe du modele]
-    HAVE -- non, refus seulement --> ANSWER2[Explication du refus<br/>a l'utilisateur]
-    HAVE -- oui --> SYNTH[Synthese par le modele redacteur]
-
-    ANSWER1 --> AUDIT
-    ANSWER2 --> AUDIT
-    SYNTH --> AUDIT
-    DIRECT --> AUDIT
-    AUDIT[Ecriture du journal d'audit] --> END([Reponse HTTP])
-
-    R401 --> END
-    R403A --> END
-```
 
 ## Deux idees a retenir de ce diagramme
 

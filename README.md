@@ -42,6 +42,8 @@ Le port 8090 n'est plus expose : l'orchestrateur tourne en conteneur sur le
 reseau Docker, et Open WebUI est le seul chemin d'acces. Toute requete traverse
 donc le JWT, la GPO et le journal d'audit.
 
+Pour savoir quels fichiers lire, dans quel ordre : [docs/lire-le-projet.md](docs/lire-le-projet.md).
+
 ## Ce que fait ce labo
 
 Un utilisateur s'authentifie, puis envoie une demande en langage naturel
@@ -325,15 +327,23 @@ conseille.
 
 | Diagramme | Image | Source (editable) |
 | --- | --- | --- |
-| Sequence d'une demande | [PNG](docs/uml/01-sequence-demande-1.png) | [Markdown](docs/uml/01-sequence-demande.md) |
-| Diagramme de classes | [PNG](docs/uml/02-classes.png) | [Markdown](docs/uml/02-classes.md) |
-| Diagramme d'activite (choix et autorisation des outils) | [PNG](docs/uml/03-activite-outils.png) | [Markdown](docs/uml/03-activite-outils.md) |
-| Deploiement | [PNG](docs/uml/04-deploiement.png) | [Markdown](docs/uml/04-deploiement.md) |
+| Sequence d'une demande | [PNG](docs/uml/01-sequence-demande.png) | [PlantUML](docs/uml/01-sequence-demande.puml) |
+| Boucle de planification (2 tours) | [PNG](docs/uml/01b-boucle-planification.png) | [PlantUML](docs/uml/01b-boucle-planification.puml) |
+| Diagramme de classes | [PNG](docs/uml/02-classes.png) | [PlantUML](docs/uml/02-classes.puml) |
+| Diagramme d'activite (choix et autorisation des outils) | [PNG](docs/uml/03-activite-outils.png) | [PlantUML](docs/uml/03-activite-outils.puml) |
+| Deploiement | [PNG](docs/uml/04-deploiement.png) | [PlantUML](docs/uml/04-deploiement.puml) |
 | Parcours commente d'une requete reelle | - | [Markdown](docs/parcours-requete.md) |
 
-Les diagrammes sont ecrits en Mermaid (source texte, versionnable) et rendus en
-PNG a cote. Quand le source change, regenerer l'image : extraire le bloc Mermaid
-dans un fichier `.mmd` puis `curl -A 'Mozilla/5.0' "https://mermaid.ink/img/<base64 url-safe du source>?bgColor=white&type=png" -o image.png`.
+Les diagrammes sont ecrits en **PlantUML** (`.puml`, source texte versionnable,
+plus precis que Mermaid pour l'UML) et rendus en PNG a cote. Pour regenerer
+toutes les images apres une modification :
+
+```bash
+python3 scripts/render_uml.py
+```
+
+Le script utilise le serveur public plantuml.com (pas de JVM sur la machine du
+labo) et n'a besoin d'aucune dependance Python.
 
 ## Tests
 

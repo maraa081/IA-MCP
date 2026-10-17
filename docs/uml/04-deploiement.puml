@@ -1,0 +1,36 @@
+@startuml 04-deploiement
+title Deploiement du labo (Open WebUI = seul point d'entree)
+skinparam componentStyle rectangle
+
+actor "Navigateur\nhttp://localhost:3000" as NAV
+
+node "Docker Desktop - reseau mcp-lab" {
+  component "Open WebUI\n:3000 (publie)" as WEB
+  component "Orchestrateur FastAPI\nconteneur orchestrator-lab\naucun port publie" as ORCH
+}
+
+node "WSL2 (hote)" {
+  component "Gateway LiteLLM\n:4000" as GW
+  component "Serveur MCP summarizer\n:9101/mcp" as M1
+  component "Serveur MCP codedoc\n:9102/mcp" as M2
+  component "Serveur MCP codedb\n:9103/mcp" as M3
+  component "Ollama\n:11434" as OLL
+  database "Fichiers locaux\nconfig/policies.yaml\nconfig/keys\nvar/logs/audit.jsonl" as FS
+}
+
+NAV --> WEB : HTTP
+WEB --> ORCH : OpenAI + JWT
+ORCH --> GW : HTTP + cle de service
+GW --> OLL : API Ollama
+ORCH --> M1 : MCP streamable HTTP
+ORCH --> M2 : MCP streamable HTTP
+ORCH --> M3 : MCP streamable HTTP
+ORCH --> FS : lecture / ecriture
+
+note bottom of ORCH
+  Chaque requete traverse le JWT, la GPO
+  et le journal d'audit. Le port 8090
+  n'est pas publie sur la machine.
+end note
+
+@enduml

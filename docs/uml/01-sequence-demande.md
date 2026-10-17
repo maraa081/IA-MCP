@@ -3,80 +3,10 @@
 Scenario : `demo` (role `analyst`) envoie "resume moi ce document".
 C'est le diagramme de reference du projet : tout le reste decoule de ce trajet.
 
-![01-sequence-demande-1](01-sequence-demande-1.png)
+![Demande de bout en bout](01-sequence-demande.png)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor U as Utilisateur (demo / analyst)
-    participant API as Orchestrateur<br/>(FastAPI :8090)
-    participant JWT as Securite JWT<br/>(RS256)
-    participant GPO as Politique<br/>(policies.yaml)
-    participant PLAN as Planificateur<br/>(llm/planner.py)
-    participant GW as Gateway LiteLLM<br/>:4000
-    participant LLM as Ollama<br/>qwen3.5:4b
-    participant MCP as Serveur MCP<br/>summarizer :9101
-    participant AUD as Journal d'audit<br/>audit.jsonl
+Source PlantUML : [01-sequence-demande.puml](01-sequence-demande.puml)
 
-    Note over U,API: 1. Authentification
-    U->>API: POST /auth/token {username, password}
-    API->>API: comparaison a temps constant
-    API->>JWT: issue_access_token(sub, roles)
-    JWT-->>API: jeton signe RS256 + jti
-    API-->>U: access_token (duree 900 s)
-
-    Note over U,API: 2. Demande metier
-    U->>API: POST /v1/chat + Bearer <jeton>
-    API->>JWT: decode(jeton)
-    JWT->>JWT: signature, exp, iss, aud, claims obligatoires
-    JWT->>JWT: jti present dans la liste de revocation ?
-    JWT-->>API: AuthenticatedUser{sub, roles, jti}
-
-    API->>GPO: check_prompt(message)
-    GPO-->>API: taille conforme
-
-    API->>GPO: grants_for(["analyst"])
-    GPO-->>API: {summarize_text, code_to_technical_doc}
-
-    API->>API: registre MCP filtre sur ces droits
-    Note right of API: le modele ne verra QUE ces outils
-
-    Note over API,LLM: 3. Choix des outils
-    API->>PLAN: plan(message, outils autorises)
-    PLAN->>GW: POST /v1/chat/completions (tools=[...])
-    GW->>LLM: requete de chat (alias "planner")
-    LLM-->>GW: tool_calls: summarize_text(text=...)
-    GW-->>PLAN: reponse normalisee
-    PLAN-->>API: Plan{appels:[summarize_text]}
-
-    Note over API,MCP: 4. Autorisation puis execution
-    API->>GPO: check_tool_call(tool, arguments, appels deja faits)
-    GPO->>GPO: droit du role, quota, taille, valeurs, debit
-    GPO-->>API: Decision(allowed=true)
-
-    API->>MCP: JSON-RPC tools/call summarize_text
-    MCP->>GW: POST /v1/chat/completions (alias "writer")
-    GW->>LLM: prompt de resume
-    LLM-->>GW: texte du resume
-    GW-->>MCP: reponse
-    MCP-->>API: resultat structure {summary, ...}
-
-    Note over API,LLM: 5. Synthese
-    API->>GW: composition de la reponse finale
-    GW->>LLM: prompt de synthese
-    LLM-->>GW: reponse redigee
-    GW-->>API: texte final
-
-    Note over API,AUD: 6. Tracabilite
-    API->>AUD: {sub, roles, outils proposes, executes, refus, duree}
-    API-->>U: {answer, tools_used, tool_trace, latency_ms}
-
-    Note over API,MCP: Cas d'un appel refuse
-    API->>GPO: check_tool_call(outil non accorde)
-    GPO-->>API: Decision(allowed=false, raison)
-    API->>AUD: denials=[...]
-    Note right of API: aucun appel MCP n'est emis
-```
 
 ## La boucle de planification
 
@@ -84,36 +14,10 @@ Depuis l'ajout du serveur de code en base, l'orchestrateur ne se contente plus
 d'un seul tour : il faut d'abord trouver le fichier, puis le lire pour le
 resumer. Le modele est donc rappele avec les resultats du tour precedent.
 
-![01-sequence-demande-2](01-sequence-demande-2.png)
+![Boucle de planification](01b-boucle-planification.png)
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant API as Orchestrateur
-    participant PLAN as Planificateur
-    participant MCP as Serveurs MCP
-    participant GW as Gateway + Ollama
+Source PlantUML : [01b-boucle-planification.puml](01b-boucle-planification.puml)
 
-    API->>PLAN: tour 1 : conversation = [demande]
-    PLAN->>GW: plan(conversation, outils autorises)
-    GW-->>PLAN: appelle chercher_code("politique de droits")
-    PLAN-->>API: Plan{appels:[chercher_code]}
-
-    API->>API: autorisation (GPO) puis execution MCP
-    API->>MCP: tools/call chercher_code
-    MCP-->>API: 3 fichiers, avec leur reference
-
-    API->>PLAN: tour 2 : conversation + resultats de l'outil
-    PLAN->>GW: plan(conversation enrichie)
-    GW-->>PLAN: appelle resumer_code(reference="policy/engine.py")
-    PLAN-->>API: Plan{appels:[resumer_code]}
-
-    API->>MCP: tools/call resumer_code
-    MCP-->>API: resume du fichier lu en base
-
-    API->>API: borne atteinte (2 tours) :
-    API-->>API: reponse composee a partir des resultats
-```
 
 Trois points a retenir :
 
