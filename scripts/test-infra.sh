@@ -20,6 +20,9 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 source scripts/common.sh
 
+# L'orchestrateur n'a plus de port publie : les appels passent par le conteneur.
+curl() { curl_api "$@"; }
+
 FULL=0
 [[ "${1:-}" == "--full" ]] && FULL=1
 
@@ -113,15 +116,16 @@ fi
   && ok "l'orchestrateur joint la gateway" \
   || ko "l'orchestrateur ne joint pas la gateway"
 
-# Page de prompt : c'est le moyen le plus simple de tester depuis un navigateur.
+# L'interface a demenage dans Open WebUI : l'orchestrateur ne sert plus de page.
 CODE_UI=$(code "$ORCHESTRATOR_URL/ui")
-[[ "$CODE_UI" == "200" ]] \
-  && ok "page de prompt servie (/ui)" \
-  || ko "page de prompt indisponible (/ui -> $CODE_UI)"
-CODE_RACINE=$(code "$ORCHESTRATOR_URL/")
-[[ "$CODE_RACINE" == "307" || "$CODE_RACINE" == "308" ]] \
-  && ok "la racine redirige vers la page de prompt" \
-  || ko "racine : redirection attendue, obtenu $CODE_RACINE"
+[[ "$CODE_UI" == "404" ]] \
+  && ok "ancienne page /ui retiree (404 attendu)" \
+  || ko "page /ui encore servie ($CODE_UI)"
+# Le chemin utilise par Open WebUI est la passerelle OpenAI : elle exige un jeton.
+CODE_MODELES=$(code "$ORCHESTRATOR_URL/v1/models")
+[[ "$CODE_MODELES" == "401" ]] \
+  && ok "passerelle OpenAI protegee par jeton (401 sans jeton)" \
+  || ko "passerelle OpenAI accessible sans jeton ($CODE_MODELES)"
 
 CODE_DOCS=$(code "$ORCHESTRATOR_URL/docs")
 [[ "$CODE_DOCS" == "200" ]] \

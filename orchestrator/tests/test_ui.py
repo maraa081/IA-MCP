@@ -1,8 +1,8 @@
-"""Tests de l'interface servie par l'API.
+"""Tests des points d'entree servis par l'orchestrateur.
 
-Ces tests verifient que l'application demarre et sert ses points d'entree sans
-qu'aucun serveur MCP ne soit joignable : c'est le cas quand on veut simplement
-ouvrir la page de prompt.
+Depuis que Open WebUI est la seule interface, l'orchestrateur ne sert plus de
+page HTML : il n'expose que son API. Ces tests verifient ce contrat (l'ancienne
+page /ui a bien disparu) et que l'application reste utilisable sans serveur MCP.
 """
 
 from __future__ import annotations
@@ -18,11 +18,7 @@ from orchestrator.app.main import create_app
 
 @pytest.fixture()
 def settings(tmp_path: Path) -> Settings:
-    """Reglages isoles, sans dependance a un service qui tourne sur la machine.
-
-    La politique utilisee est celle livree dans le depot : c'est celle que
-    l'application chargera reellement au demarrage.
-    """
+    """Reglages isoles, sans dependance a un service qui tourne sur la machine."""
     return Settings(
         policies_path=PROJECT_ROOT / "config" / "policies.yaml",
         audit_log_path=tmp_path / "audit.jsonl",
@@ -36,48 +32,32 @@ def settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_la_page_de_prompt_est_servie(settings: Settings) -> None:
+def test_l_ancienne_page_de_prompt_a_disparu(settings: Settings) -> None:
+    """La page /ui a ete retiree : le navigateur passe uniquement par Open WebUI."""
     with TestClient(create_app(settings)) as client:
         reponse = client.get("/ui")
 
-    assert reponse.status_code == 200
-    assert "text/html" in reponse.headers["content-type"]
-    # Contenu minimal attendu : le champ de saisie et l'appel a l'API.
-    assert 'id="message"' in reponse.text
-    assert "/v1/chat" in reponse.text
-
-
-def test_la_racine_redirige_vers_la_page(settings: Settings) -> None:
-    with TestClient(create_app(settings)) as client:
-        reponse = client.get("/", follow_redirects=False)
-
-    assert reponse.status_code in (307, 308)
-    assert reponse.headers["location"] == "/ui"
+    assert reponse.status_code == 404
 
 
 def test_la_documentation_interactive_reste_disponible(settings: Settings) -> None:
-    """La documentation OpenAPI est le second moyen de tester depuis un navigateur."""
+    """La documentation OpenAPI reste utile pour explorer l'API en developpement."""
     with TestClient(create_app(settings)) as client:
         reponse = client.get("/docs")
 
     assert reponse.status_code == 200
 
 
-def test_la_page_n_expose_aucun_secret(settings: Settings) -> None:
-    """Une page servie ne doit contenir aucun identifiant."""
+def test_les_modeles_exigent_un_jeton(settings: Settings) -> None:
+    """Le chemin OpenAI n'est pas anonyme : sans jeton, pas de catalogue."""
     with TestClient(create_app(settings)) as client:
-        contenu = client.get("/ui").text
+        reponse = client.get("/v1/models")
 
-    assert settings.dev_password not in contenu
-    assert "GATEWAY_MASTER_KEY" not in contenu
+    assert reponse.status_code == 401
 
 
 def test_le_point_de_sante_signale_l_absence_de_serveurs_mcp(settings: Settings) -> None:
-    """Sans serveur MCP joignable, l'etat est degrade mais l'API repond.
-
-    C'est un choix delibere : l'application reste utilisable (page de prompt,
-    documentation) meme si les outils sont momentanement indisponibles.
-    """
+    """Sans serveur MCP joignable, l'etat est degrade mais l'API repond."""
     with TestClient(create_app(settings)) as client:
         reponse = client.get("/health")
 

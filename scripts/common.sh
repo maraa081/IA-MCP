@@ -38,6 +38,10 @@ export LOG_DIR="$VAR_DIR/logs"
 export AUDIT_LOG="$LOG_DIR/audit.jsonl"
 mkdir -p "$PID_DIR" "$LOG_DIR"
 
+# Chemin du vrai binaire curl, avant que les scripts ne definissent une fonction
+# du meme nom (voir curl_api).
+CURL_REEL="$(type -P curl || true)"
+
 # --- Fonctions utilitaires ----------------------------------------------------
 
 wait_for_http() {
@@ -64,6 +68,32 @@ start_background() {
   setsid nohup "$@" >"$logfile" 2>&1 < /dev/null &
   echo $! >"$PID_DIR/$name.pid"
   echo "  [go]   $name (pid $(cat "$PID_DIR/$name.pid")) -> $logfile"
+}
+
+# Les scripts de test appellent l'orchestrateur par son URL habituelle, mais il
+# n'a plus de port publie : il tourne en conteneur, joignable seulement depuis le
+# reseau Docker. On rejoue donc les requetes DANS le conteneur. Le code des
+# scripts ne change pas ; seul l'aiguillage est centralise ici.
+#
+#   curl_api <arguments curl...>
+#
+# Les appels qui ne visent pas l'orchestrateur (gateway, Ollama, MCP) partent
+# normalement depuis l'hote.
+curl_api() {
+  local args=("$@") argument
+  for argument in "${args[@]}"; do
+    case "$argument" in
+      *127.0.0.1:8090*|*localhost:8090*)
+        if docker ps --format '{{.Names}}' | grep -qx orchestrator-lab; then
+          docker exec -i orchestrator-lab "$CURL_REEL" "${args[@]}"
+          return $?
+        fi
+        echo "orchestrateur non demarre (./scripts/orchestrator.sh up)" >&2
+        return 7
+        ;;
+    esac
+  done
+  "$CURL_REEL" "${args[@]}"
 }
 
 stop_background() {

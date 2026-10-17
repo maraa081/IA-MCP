@@ -9,6 +9,9 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
+# L'orchestrateur n'a plus de port publie : les appels passent par le conteneur.
+curl() { curl_api "$@"; }
+
 need() { command -v "$1" >/dev/null || { echo "Outil manquant : $1"; exit 1; }; }
 need curl
 need jq

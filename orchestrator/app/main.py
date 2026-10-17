@@ -16,21 +16,14 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import Settings, get_settings
 from .container import Services
-from .routers import auth, chat, meta
-
-# Page de prompt servie par l'API elle-meme : une seule page HTML, sans
-# dependance ni etape de build. Elle sert a essayer l'infrastructure depuis un
-# navigateur, sans installer de client.
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+from .routers import auth, chat, meta, openai
 
 DESCRIPTION = """
 Orchestrateur d'outils MCP.
@@ -122,17 +115,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(chat.router)
     app.include_router(meta.router)
-
-    # --- Interface de test ---------------------------------------------------
-    @app.get("/", include_in_schema=False)
-    async def racine() -> RedirectResponse:
-        """La racine renvoie vers la page de prompt."""
-        return RedirectResponse(url="/ui")
-
-    @app.get("/ui", include_in_schema=False)
-    async def page_de_prompt() -> FileResponse:
-        """Page de prompt (fichier statique servi par l'API)."""
-        return FileResponse(STATIC_DIR / "ui.html", media_type="text/html")
+    # Passerelle OpenAI : c'est le chemin utilise par Open WebUI. L'API maison
+    # (/v1/chat) reste disponible pour les scripts et les tests, mais il n'y a
+    # plus d'interface web servie par l'orchestrateur : le navigateur passe
+    # uniquement par Open WebUI.
+    app.include_router(openai.router)
 
     return app
 

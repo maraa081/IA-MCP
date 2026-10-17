@@ -138,8 +138,21 @@ class ToolPlanner:
         deux tours.
         """
         if not tools:
-            # Aucun outil autorise : on ne laisse meme pas le modele en proposer.
-            return Plan(calls=[], content="", mode="no_tools")
+            # Aucun outil autorise (modele "sans outil" d'Open WebUI, ou role
+            # sans aucun droit) : reponse directe. On n'utilise PAS le prompt de
+            # planification, qui impose un appel d'outil et n'a plus de sens ici.
+            try:
+                reply = await self._gateway.chat(
+                    model=self._settings.planner_model,
+                    messages=messages,
+                    temperature=0.3,
+                    max_tokens=700,
+                )
+            except GatewayUnavailable as exc:
+                return Plan(
+                    calls=[], content=f"[gateway indisponible] {exc}", mode="direct_error"
+                )
+            return Plan(calls=[], content=reply.content, mode="direct")
 
         mode = self._settings.planner_mode
 

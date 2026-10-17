@@ -20,6 +20,7 @@ IMAGE="ghcr.io/open-webui/open-webui:main"
 PORT="${OPENWEBUI_PORT:-3000}"
 VOLUME="open-webui-data"
 IP_FICHIER="$VAR_DIR/openwebui-ip.txt"
+RESEAU="mcp-lab"
 
 # --- Cle de session (persistante : sinon les sessions sautent a chaque restart)
 if ! grep -q '^WEBUI_SECRET_KEY=' .env 2>/dev/null; then
@@ -40,6 +41,8 @@ case "${1:-status}" in
   up)
     IP="$(ip_wsl)"
     ANCIENNE_IP="$(cat "$IP_FICHIER" 2>/dev/null || true)"
+    docker network inspect "$RESEAU" >/dev/null 2>&1 \
+      || docker network create "$RESEAU" >/dev/null
 
     if docker ps -a --format '{{.Names}}' | grep -qx "$CONTENEUR"; then
       if [[ "$IP" != "$ANCIENNE_IP" ]]; then
@@ -53,6 +56,7 @@ case "${1:-status}" in
     if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONTENEUR"; then
       docker volume create "$VOLUME" >/dev/null 2>&1 || true
       docker run -d --name "$CONTENEUR" \
+        --network "$RESEAU" \
         -p "$PORT:8080" \
         -e PORT=8080 \
         -e OPENAI_API_BASE_URL="http://$IP:4000/v1" \
@@ -65,8 +69,10 @@ case "${1:-status}" in
         -v "$VOLUME:/app/backend/data" \
         --restart unless-stopped \
         "$IMAGE" >/dev/null 2>&1 \
-        && echo "  conteneur cree : modeles lus sur http://$IP:4000/v1"
+        && echo "  conteneur cree (reseau $RESEAU)"
     fi
+    # Un conteneur cree avant l'arrivee du reseau doit y etre rattache une fois.
+    docker network connect "$RESEAU" "$CONTENEUR" >/dev/null 2>&1 || true
     printf '%s' "$IP" > "$IP_FICHIER"
 
     for _ in $(seq 1 60); do
@@ -92,19 +98,39 @@ case "${1:-status}" in
     ;;
 
   setup)
-    # Premier compte admin + declaration des serveurs d'outils (idempotent).
-    IP="$(ip_wsl)"
-    MCPO_API_KEY="$(sed -n 's/^MCPO_API_KEY=//p' .env | head -1)"
-    if [[ -z "$MCPO_API_KEY" ]]; then
-      echo "  ERREUR : MCPO_API_KEY absente. Lancer d'abord ./scripts/bridge.sh up"; exit 1
-    fi
+    # Premier compte admin, puis branchement sur l'orchestrateur (idempotent).
     "$PY" "$PROJECT_ROOT/scripts/openwebui_bootstrap.py" \
-      --base "http://127.0.0.1:$PORT" --ip-wsl "$IP" --mcpo-port "${MCPO_PORT:-9300}" \
-      --mcpo-key "$MCPO_API_KEY" --credentials "$VAR_DIR/openwebui-admin.txt"
+      --base "http://127.0.0.1:$PORT" \
+      --ip-wsl "$(ip_wsl)" \
+      --credentials "$VAR_DIR/openwebui-admin.txt"
+    TOKEN="$("$PY" "$PROJECT_ROOT/scripts/mint_token.py" \
+      --sub openwebui --roles analyst --ttl 31536000 --quiet)"
+    printf '%s' "$TOKEN" > "$VAR_DIR/openwebui-token.txt"
+    chmod 600 "$VAR_DIR/openwebui-token.txt"
+    "$PY" "$PROJECT_ROOT/scripts/openwebui_connect.py" \
+      --base "http://127.0.0.1:$PORT" --orchestrateur "http://orchestrator-lab:8090/v1" \
+      --token "$TOKEN" --credentials "$VAR_DIR/openwebui-admin.txt"
+    unset TOKEN
+    ;;
+
+  connect)
+    # Branche Open WebUI sur l'orchestrateur : fournisseur OpenAI unique, cle =
+    # JWT longue duree verifie a chaque requete. Retire les anciens serveurs
+    # d'outils (chemin sans JWT, sans GPO, sans audit).
+    TOKEN="$("$PY" "$PROJECT_ROOT/scripts/mint_token.py" \
+      --sub openwebui --roles analyst --ttl 31536000 --quiet)"
+    printf '%s' "$TOKEN" > "$VAR_DIR/openwebui-token.txt"
+    chmod 600 "$VAR_DIR/openwebui-token.txt"
+    "$PY" "$PROJECT_ROOT/scripts/openwebui_connect.py" \
+      --base "http://127.0.0.1:$PORT" \
+      --orchestrateur "http://orchestrator-lab:8090/v1" \
+      --token "$TOKEN" \
+      --credentials "$VAR_DIR/openwebui-admin.txt"
+    unset TOKEN
     ;;
 
   *)
-    echo "Usage : $0 {up|down|status|logs|setup}"
+    echo "Usage : $0 {up|down|status|logs|setup|connect}"
     exit 1
     ;;
 esac

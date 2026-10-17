@@ -9,11 +9,17 @@ transposer en entreprise, sans dependre d'un service cloud.
 ```
 Utilisateur
     |
-    |  POST /v1/chat   (jeton JWT dans l'en-tete Authorization)
+    |  navigateur (le seul point d'entree)
     v
++--------------------------------------+
+|  Open WebUI (Docker) :3000           |
+|  une interface, une seule cle        |
++------------------+-------------------+
+                   |  OpenAI + JWT
+                   v
 +-----------------------------+        +--------------------------+
-|  Orchestrateur FastAPI      |  HTTP  |  Gateway LiteLLM :4000   |
-|  :8090                      |------->|  (alias planner/writer)  |
+|  Orchestrateur (conteneur)  |  HTTP  |  Gateway LiteLLM :4000   |
+|  aucun port publie          |------->|  (alias planner/writer)  |
 |                             |        +------------+-------------+
 |  1. verification du JWT     |                     |
 |  2. politique (GPO)         |                     v
@@ -24,13 +30,17 @@ Utilisateur
        |               |
        | MCP           | MCP
        v               v
-+-------------+  +--------------+
-| summarizer  |  | codedoc      |
-| :9101       |  | :9102        |
-| summarize_  |  | code_to_     |
-| text        |  | technical_doc|
-+-------------+  +--------------+
++-------------+  +--------------+  +--------------+
+| summarizer  |  | codedoc      |  | codedb       |
+| :9101       |  | :9102        |  | :9103        |
+| summarize_  |  | code_to_     |  | 4 outils sur |
+| text        |  | technical_doc|  | base SQLite  |
++-------------+  +--------------+  +--------------+
 ```
+
+Le port 8090 n'est plus expose : l'orchestrateur tourne en conteneur sur le
+reseau Docker, et Open WebUI est le seul chemin d'acces. Toute requete traverse
+donc le JWT, la GPO et le journal d'audit.
 
 ## Ce que fait ce labo
 
@@ -61,9 +71,9 @@ chaque tour repasse par la politique de droits.
 | Serveur MCP `summarizer` | 9101 | Outil `summarize_text` | `mcp_servers/summarizer/server.py` |
 | Serveur MCP `codedoc` | 9102 | Outil `code_to_technical_doc` (code fourni dans le prompt) | `mcp_servers/codedoc/server.py` |
 | Serveur MCP `codedb` | 9103 | Quatre outils qui lisent le code dans une base | `mcp_servers/codedb/server.py` |
-| Orchestrateur | 8090 | Authentification, GPO, planification, synthese | `orchestrator/app/` |
-| Passerelle d'outils (mcpo) | 9300 | Traduit les serveurs MCP en OpenAPI pour Open WebUI | `bridge/mcpo.config.json` |
-| Open WebUI (Docker) | 3000 | Facade de chat, outils activables par conversation | `scripts/openwebui.sh` |
+| Orchestrateur (conteneur) | interne 8090 | Authentification, GPO, planification, synthese. Aucun port publie | `orchestrator/app/` |
+| Open WebUI (Docker) | 3000 | Interface unique : chat, choix du jeu d'outils par modele | `scripts/openwebui.sh` |
+| Passerelle OpenAI | `/v1` | Traduit Open WebUI vers le pipeline (`/v1/models`, `/v1/chat/completions`) | `orchestrator/app/routers/openai.py` |
 
 Un seul utilisateur de demonstration (`demo`, role `analyst`) et deux outils,
 comme demande. Tout est prevu pour en ajouter sans toucher au coeur du code.
@@ -72,122 +82,78 @@ comme demande. Tout est prevu pour en ajouter sans toucher au coeur du code.
 
 ```bash
 ./scripts/bootstrap.sh     # environnements Python, cles JWT, .env, modeles Ollama
-./scripts/up.sh            # Ollama, gateway, serveurs MCP, passerelle d'outils, orchestrateur
-./scripts/openwebui.sh up  # facade de chat Open WebUI (facultative)
+./scripts/up.sh            # Ollama, gateway, serveurs MCP, orchestrateur (conteneur)
+./scripts/openwebui.sh up  # interface Open WebUI
+./scripts/openwebui.sh connect  # branche Open WebUI sur l'orchestrateur (JWT)
 ./scripts/demo.sh          # parcours complet commente, de bout en bout
 ./scripts/down.sh          # arret (--all pour arreter aussi Ollama)
 ```
 
-L'API est documentee automatiquement (OpenAPI) sur <http://127.0.0.1:8090/docs>.
+Ouvrir ensuite <http://localhost:3000>. L'API de l'orchestrateur n'est plus
+publiee sur la machine : `./scripts/prompt.sh` et `./scripts/test-infra.sh`
+continuent de fonctionner (ils rejouent leurs requetes dans le conteneur).
 
 Comptez plusieurs dizaines de secondes par appel de modele : l'inference se fait
 sur CPU.
 
-### Depuis un navigateur
+### Depuis Open WebUI (le seul chemin)
 
-L'API sert elle-meme une page de prompt : un seul fichier HTML, sans dependance
-ni etape de build.
-
-```
-http://localhost:8090/ui      page de prompt
-http://localhost:8090/docs    documentation interactive (bouton Authorize)
-http://localhost:8090/        redirige vers /ui
-```
-
-La page permet de s'authentifier, de voir ses droits effectifs, d'envoyer un
-prompt, et de lire la reponse **avec la trace** : outils appeles, decision de la
-GPO, durees, refus, duree totale.
-
-#### Le piege qui provoque un "not found"
-
-Par defaut l'orchestrateur ecoute sur `127.0.0.1`, donc uniquement depuis
-l'interieur de WSL. Depuis le navigateur Windows, il n'y a alors rien sur ce
-port : la page est introuvable.
-
-Il faut ecouter sur toutes les interfaces, dans `.env` :
+Le navigateur ne parle plus a l'orchestrateur : il ouvre Open WebUI, qui appelle
+l'orchestrateur en OpenAI + JWT.
 
 ```
-ORCHESTRATOR_HOST=0.0.0.0
+http://localhost:3000         interface de chat
 ```
 
-puis redemarrer la pile (`./scripts/up.sh`). WSL2 redirige ensuite le `localhost`
-de Windows vers WSL automatiquement : `http://localhost:8090/ui` fonctionne sans
-regle de pare-feu ni redirection de port.
+Les modeles proposes portent le choix des outils (voir plus bas). La
+documentation OpenAPI de l'orchestrateur reste consultable en developpement via
+`docker exec orchestrator-lab curl -s http://127.0.0.1:8090/docs`, mais elle
+n'est plus un point d'entree utilisateur.
 
-L'adresse reseau de WSL fonctionne aussi, mais elle change a chaque redemarrage :
+### Interface unique : Open WebUI
+
+Open WebUI est le seul point d'entree. L'orchestrateur n'est plus un service
+visible : il tourne en conteneur, sans port publie, et Open WebUI l'appelle par
+son nom sur le reseau Docker `mcp-lab`.
 
 ```bash
-hostname -I | awk '{print $1}'    # exemple : 172.31.13.28
+./scripts/up.sh                 # Ollama, gateway, MCP, orchestrateur (conteneur)
+./scripts/openwebui.sh up       # Open WebUI, port 3000
+./scripts/openwebui.sh connect  # branche Open WebUI sur l'orchestrateur (JWT)
 ```
 
-Deux precautions : l'API reste protegee par un jeton, mais elle devient joignable
-depuis le reseau local ; et il faut remettre `ORCHESTRATOR_HOST=127.0.0.1` (ou
-placer l'orchestrateur derriere un reverse proxy HTTPS) une fois les essais
-termines.
-
-#### Voir la GPO refuser quelque chose, depuis la page
-
-La page s'authentifie avec les identifiants de demonstration, qui portent le role
-`analyst`. Pour tester un role moins permissif, coller un jeton d'un autre role :
-
-```bash
-./.venv/bin/python scripts/mint_token.py --sub lecteur --roles reader
+```
+navigateur -> Open WebUI :3000 -> orchestrateur (conteneur, JWT)
+                                      |-> gateway LiteLLM :4000 -> Ollama
+                                      |-> serveurs MCP :9101 / :9102 / :9103
 ```
 
-puis ouvrir « Coller un jeton existant » dans la page, et demander une
-documentation de code : `documenter_code` n'est pas accorde au role `reader`.
+**Choisir les outils.** Les cases a cocher ont disparu : elles appelaient les
+outils en direct, sans JWT, sans GPO et sans audit. A la place, chaque modele de
+la liste correspond a un jeu d'outils :
 
-### Facade de chat : Open WebUI
+| Modele | Outils autorises |
+| --- | --- |
+| Assistant | tous ceux autorises par la GPO |
+| Assistant sans outil | aucun (reponse directe) |
+| Assistant resume | `summarize_text` |
+| Assistant code | les 4 outils de la base de code |
+| Assistant doc | `code_to_technical_doc` |
 
-Une interface de chat complete, branchee sur la gateway (donc sur les memes cles
-et les memes quotas), avec les outils MCP **activables ou desactivables
-conversation par conversation**.
+C'est une **intersection** avec la GPO, jamais un elargissement : choisir un
+modele ne peut pas donner plus de droits que le role porte par le jeton.
 
-```bash
-./scripts/bridge.sh up         # passerelle d'outils (mcpo), port 9300
-./scripts/openwebui.sh up      # conteneur Docker, port 3000
-./scripts/openwebui.sh setup   # premier compte admin + declaration des outils
-```
+**JWT.** `./scripts/openwebui.sh connect` fabrique un jeton de service
+(sub `openwebui`, role `analyst`, duree 365 jours), l'ecrit dans
+`var/openwebui-token.txt` (droits 600, non versionne) et le declare comme cle du
+fournisseur OpenAI. Chaque message repasse donc par la verification JWT, la GPO
+et le journal d'audit. Un jeton revoque coupe immediatement l'acces
+(`config/revoked_tokens.json`). Pour renouveler le jeton, relancer `connect`.
 
-Puis, dans le navigateur : <http://localhost:3000>.
-
-```
-navigateur -> Open WebUI :3000 -> gateway LiteLLM :4000 -> Ollama :11434
-                    |
-                    +-> passerelle mcpo :9300 -> serveurs MCP 9101 / 9102 / 9103
-```
-
-**Activer un outil, ou pas.** Sous le champ de saisie, l'icone d'outils liste les
-serveurs declares : `MCP - resume de texte`, `MCP - code en documentation`,
-`MCP - code indexe`. Ce qui est coche est mis a disposition du modele pour ce
-message ; ce qui ne l'est pas n'existe pas pour lui. C'est la difference avec
-l'orchestrateur, ou c'est la politique qui decide a la place de l'utilisateur.
-
-**Pourquoi une passerelle d'outils.** Open WebUI parle OpenAPI, pas MCP : `mcpo`
-(outil de l'equipe Open WebUI) expose chaque serveur MCP en API REST et publie un
-document OpenAPI, que Open WebUI importe comme « serveur d'outils ». La passerelle
-ne detient aucune cle de modele : ce sont les serveurs MCP qui parlent a la
-gateway, avec leur cle restreinte au modele de redaction.
-
-**Compte et cle.** L'installation cree un administrateur ; ses identifiants sont
-dans `var/openwebui-admin.txt` (non versionne, droits 600). La cle de la
-passerelle d'outils est `MCPO_API_KEY` dans `.env`.
-
-**Piege (rencontre ici) :** `mcpo` 0.0.20 exige `mcp<2`, alors que les serveurs du
-labo utilisent le SDK 2.3.0. Le venv dedie `.venv-bridge` fige donc `mcp==1.30.0` :
-les deux versions cohabitent, chacune dans son environnement. A retenir : un pont
-entre deux generations d'un meme SDK se resout par l'isolation, pas par un
-melange de versions.
-
-**Piege (IP de WSL) :** le conteneur joint les services de WSL par l'adresse de
-WSL, qui change au redemarrage de Windows. `./scripts/openwebui.sh up` recalcule
-cette adresse et recree le conteneur si elle a bouge.
-
-**Reglage utile :** la gateway porte desormais `think: false` sur ses deux alias.
-Sans cela, le modele consomme son budget de tokens en reflexion interne, triple la
-latence et peut rendre une reponse vide (voir les defauts trouves a l'execution).
-L'interface web n'a pas de bouton pour ce reglage : le bon endroit est la gateway,
-ou tous les clients en profitent.
+**Ce qui a change.** `mcpo` n'est plus utilise : le chemin Open WebUI -> mcpo ->
+MCP contournait le pipeline. Les serveurs MCP ecoutent desormais sur `0.0.0.0`
+pour que le conteneur de l'orchestrateur les joigne ; ils restent sur le reseau
+local de la machine.
 
 ### Tester en tapant un prompt
 
@@ -235,18 +201,22 @@ outils appeles ... summarize_text
 
 ### Essai manuel en trois commandes
 
+L'orchestrateur n'ayant plus de port publie, les appels se font dans le conteneur
+(ou via `./scripts/prompt.sh`, qui le fait deja).
+
 ```bash
 # 1. obtenir un jeton
-TOKEN=$(curl -s -X POST http://127.0.0.1:8090/auth/token \
+TOKEN=$(docker exec -i orchestrator-lab curl -s -X POST http://127.0.0.1:8090/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"username":"demo","password":"changeme-lab"}' | jq -r .access_token)
 
 # 2. voir ses droits
-curl -s http://127.0.0.1:8090/auth/me -H "Authorization: Bearer $TOKEN" | jq
+docker exec -i orchestrator-lab curl -s http://127.0.0.1:8090/auth/me \
+  -H "Authorization: Bearer $TOKEN" | jq
 
 # 3. poser une demande
-curl -s -X POST http://127.0.0.1:8090/v1/chat -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
+docker exec -i orchestrator-lab curl -s -X POST http://127.0.0.1:8090/v1/chat \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"message":"Resume moi ce document : <collez votre texte>"}' | jq '{answer, tools_used}'
 ```
 

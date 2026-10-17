@@ -17,6 +17,9 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 source scripts/common.sh
 
+# L'orchestrateur n'a plus de port publie : les appels passent par le conteneur.
+curl() { curl_api "$@"; }
+
 ROLE="${PROMPT_ROLE:-analyst}"
 SUB="${PROMPT_SUB:-demo}"
 SYNTHESE=""

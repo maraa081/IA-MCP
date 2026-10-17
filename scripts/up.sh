@@ -23,27 +23,26 @@ wait_for_http "$GATEWAY_URL/health/liveliness" "Gateway" 60 || \
 
 echo "== Serveurs MCP"
 start_background mcp-summarizer "$LOG_DIR/mcp-summarizer.log" \
-  "$PY" -m mcp_servers.summarizer.server --port 9101
+  "$PY" -m mcp_servers.summarizer.server --host 0.0.0.0 --port 9101
 start_background mcp-codedoc "$LOG_DIR/mcp-codedoc.log" \
-  "$PY" -m mcp_servers.codedoc.server --port 9102
+  "$PY" -m mcp_servers.codedoc.server --host 0.0.0.0 --port 9102
 start_background mcp-codedb "$LOG_DIR/mcp-codedb.log" \
-  "$PY" -m mcp_servers.codedb.server --port 9103
-echo "== Passerelle d'outils (MCP -> OpenAPI, pour Open WebUI)"
-"$PROJECT_ROOT/scripts/bridge.sh" up
+  "$PY" -m mcp_servers.codedb.server --host 0.0.0.0 --port 9103
 
 sleep 2
 
-echo "== Orchestrateur"
-start_background orchestrator "$LOG_DIR/orchestrator.log" \
-  "$PY" -m uvicorn orchestrator.app.main:app \
-  --host "${ORCHESTRATOR_HOST:-127.0.0.1}" --port "${ORCHESTRATOR_PORT:-8090}"
-wait_for_http "$ORCHESTRATOR_URL/health" "Orchestrateur" 60 || true
+echo "== Orchestrateur (conteneur, backend OpenAI d'Open WebUI)"
+# Plus de processus sur l'hote et plus de port publie : Open WebUI joint le
+# conteneur par son nom sur le reseau Docker (voir scripts/orchestrator.sh).
+"$PROJECT_ROOT/scripts/orchestrator.sh" up || true
 
 echo
 echo "Etat du systeme :"
-curl -fsS "$ORCHESTRATOR_URL/health" | "${PY}" -m json.tool 2>/dev/null || \
-  echo "  (orchestrateur pas encore pret : voir $LOG_DIR/orchestrator.log)"
+docker exec orchestrator-lab python -c "
+import json, urllib.request
+print(json.dumps(json.load(urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)), indent=4))
+" 2>/dev/null || echo "  (orchestrateur pas encore pret : ./scripts/orchestrator.sh logs)"
 echo
-echo "Documentation interactive : $ORCHESTRATOR_URL/docs"
-echo "Facade de chat (facultative) : ./scripts/openwebui.sh up  ->  $OPENWEBUI_URL"
+echo "Interface unique : ./scripts/openwebui.sh up  ->  $OPENWEBUI_URL"
+echo "Connexion des modeles : ./scripts/openwebui.sh connect"
 echo "Journaux : $LOG_DIR"

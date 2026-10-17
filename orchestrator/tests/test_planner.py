@@ -124,12 +124,19 @@ async def test_l_echappatoire_n_est_jamais_executee_comme_outil(settings: Settin
     assert plan.content == "ok"
 
 
-async def test_aucun_outil_autorise_ne_consulte_pas_le_modele(settings: Settings) -> None:
-    gateway = RecordingGateway(GatewayReply(model="planner", content="peu importe"))
+async def test_aucun_outil_autorise_repond_sans_planification(settings: Settings) -> None:
+    """Sans outil, le modele est appele en conversation simple.
+
+    Le prompt de planification impose un appel d'outil : il n'a plus de sens ici.
+    On attend donc une reponse directe, sans schema d'outil transmis.
+    """
+    gateway = RecordingGateway(GatewayReply(model="planner", content="bonjour"))
     planner = ToolPlanner(gateway, settings)          # type: ignore[arg-type]
 
     plan = await planner.plan(messages=[{"role": "user", "content": "resume"}], tools=[])
 
-    assert plan.mode == "no_tools"
+    assert plan.mode == "direct"
     assert plan.calls == []
-    assert gateway.calls == []
+    assert plan.content == "bonjour"
+    assert len(gateway.calls) == 1
+    assert "tools" not in gateway.calls[0]

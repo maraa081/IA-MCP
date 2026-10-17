@@ -126,8 +126,19 @@ class ChatPipeline:
         message: str,
         model: str | None = None,
         synthesize: bool | None = None,
+        history: list[dict[str, Any]] | None = None,
+        allowed_tools: set[str] | None = None,
     ) -> PipelineOutcome:
-        """Traite un message et retourne la reponse complete."""
+        """Traite un message et retourne la reponse complete.
+
+        `history` : tours precedents de la conversation (role/contenu), pour
+        qu'Open WebUI puisse enchainer plusieurs messages. Les droits ne sont
+        jamais tires de l'historique : seuls le jeton et la GPO font foi.
+
+        `allowed_tools` : restriction volontaire supplementaire (un modele
+        Open WebUI = un jeu d'outils). Ce n'est qu'une INTERSECTION avec les
+        droits : elle ne peut jamais elargir ce que la GPO autorise.
+        """
         trace_id = AuditLogger.new_trace_id()
         started = time.perf_counter()
 
@@ -151,6 +162,10 @@ class ChatPipeline:
         # --- Etape 2 : droits de l'utilisateur -------------------------------
         grants = self._policy.grants_for(user.roles)
         visible_tools = self._registry.filter(set(grants.keys()))
+        if allowed_tools is not None:
+            # Intersection, jamais union : la GPO reste la seule source de
+            # verite. Un modele ne peut que retirer des outils.
+            visible_tools = [tool for tool in visible_tools if tool.name in allowed_tools]
         max_calls = int(self._policy.limits.get("max_tool_calls_per_request", 3))
         want_synthesis = (
             self._settings.synthesis_enabled if synthesize is None else synthesize
@@ -161,7 +176,8 @@ class ChatPipeline:
         # permet, par exemple, de chercher un fichier dans la base puis de le
         # resumer au tour suivant. La boucle est bornee : une erreur de
         # modelisation ne peut pas faire tourner l'orchestrateur indefiniment.
-        conversation: list[dict[str, Any]] = [{"role": "user", "content": message}]
+        conversation: list[dict[str, Any]] = list(history or [])
+        conversation.append({"role": "user", "content": message})
         traces: list[ToolCallTrace] = []
         results: list[dict[str, Any]] = []
         denials: list[str] = []

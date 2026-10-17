@@ -1,0 +1,11 @@
+# Contexte de build de l'image de l'orchestrateur : ne copier que le code.
+.git
+.venv
+.venv-gateway
+.venv-bridge
+var
+config
+.env
+.pytest_cache
+**/__pycache__
+**/*.pyc

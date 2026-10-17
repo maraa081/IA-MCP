@@ -5,7 +5,8 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 echo "Arret des services"
-stop_background orchestrator
+stop_background orchestrator          # ancien processus hote, s'il en reste un
+"$PROJECT_ROOT/scripts/orchestrator.sh" down || true
 stop_background mcpo
 stop_background mcp-codedb
 stop_background mcp-codedoc

@@ -132,7 +132,8 @@ def main() -> None:
     analyseur.add_argument("--base", default="http://127.0.0.1:3000")
     analyseur.add_argument("--ip-wsl", required=True)
     analyseur.add_argument("--mcpo-port", type=int, default=9300)
-    analyseur.add_argument("--mcpo-key", required=True)
+    analyseur.add_argument("--mcpo-key", default="",
+                           help="obsolete : les outils passent par l'orchestrateur")
     analyseur.add_argument("--credentials", default="var/openwebui-admin.txt")
     analyseur.add_argument("--email", default="admin@labo.local")
     analyseur.add_argument("--nom", default="admin")
@@ -141,15 +142,10 @@ def main() -> None:
     print("== Compte administrateur")
     jeton = session(arguments.base, Path(arguments.credentials), arguments.email, arguments.nom)
 
-    print("== Serveurs d'outils")
-    nombre = declarer_serveurs(arguments.base, jeton, arguments.ip_wsl,
-                               arguments.mcpo_port, arguments.mcpo_key)
-
-    statut, corps = appel(f"{arguments.base}/api/v1/configs/tool_servers", "GET", jeton=jeton)
-    if statut == 200:
-        for connexion in corps.get("TOOL_SERVER_CONNECTIONS", []):
-            print(f"  [ok]   {connexion.get('info', {}).get('name', '?'):32s} {connexion.get('url')}")
-    print(f"  {nombre} serveur(s) d'outils declares")
+    # Les serveurs d'outils (mcpo) ne sont plus declares : ce chemin appelait les
+    # outils sans JWT, sans GPO et sans audit. Les outils passent desormais par
+    # l'orchestrateur (voir scripts/openwebui_connect.py).
+    print("== Serveurs d'outils : ignores (le montage passe par l'orchestrateur)")
 
 
 if __name__ == "__main__":
