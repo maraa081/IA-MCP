@@ -38,12 +38,73 @@ uniquement**. Exemple pour passer sur un modele plus gros pour la redaction :
 | Cles de service | `GATEWAY_API_KEY` | Appels des applications |
 
 **Limite du labo, a connaitre.** Sans base de donnees, LiteLLM n'accepte que la
-cle maitresse : les cles de service sont stockees dans une base
-(`database_url`). Le `.env` du labo utilise donc la cle maitresse comme cle
-interne, et la gateway n'ecoute que sur `127.0.0.1`.
+cle maitresse : toute autre cle produit l'erreur `no_db_connection`, parce qu'il
+cherche cette cle dans une table qu'il n'a pas. Le `.env` du labo utilise donc la
+cle maitresse comme cle interne, et la gateway n'ecoute que sur `127.0.0.1`.
 
 C'est acceptable pour un labo sur une seule machine, et inacceptable des que
 plusieurs services ou plusieurs personnes partagent la gateway.
+
+## Appeler la gateway directement
+
+Utile pour tester un modele sans passer par l'orchestrateur.
+
+**Recuperer la cle maitresse.** Elle vit dans le `.env` du projet, qui n'est jamais
+versionne (verifie : aucun secret dans l'historique du depot).
+
+```bash
+cd /home/maxim/.openclaw/workspace/mcp-orchestrator-lab
+source .env          # place GATEWAY_MASTER_KEY dans l'environnement
+```
+
+Ou pour l'afficher ponctuellement : `grep '^GATEWAY_MASTER_KEY=' .env`
+
+**Appeler un modele :**
+
+```bash
+curl -s http://127.0.0.1:4000/v1/chat/completions \
+  --oauth2-bearer "$GATEWAY_MASTER_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"planner","messages":[{"role":"user","content":"dis OK"}],"max_tokens":20,"think":false}' \
+  | jq -r '.choices[0].message.content'
+```
+
+Deux variantes a connaitre :
+
+- `"model": "writer"` pour la redaction, `planner` pour un choix rapide ;
+- `"think": false` desactive la phase de reflexion. Sans ce champ, un modele de
+  raisonnement peut consommer tout son budget de tokens en reflexion et renvoyer
+  un contenu **vide**, sans erreur.
+
+**Lister les alias declares :**
+
+```bash
+curl -s http://127.0.0.1:4000/v1/models \
+  --oauth2-bearer "$GATEWAY_MASTER_KEY" | jq -r '.data[].id'
+```
+
+**Depuis un client compatible OpenAI :**
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:4000/v1",
+    api_key=os.environ["GATEWAY_MASTER_KEY"],
+)
+reponse = client.chat.completions.create(
+    model="writer",
+    messages=[{"role": "user", "content": "Bonjour"}],
+)
+print(reponse.choices[0].message.content)
+```
+
+**Limite a garder en tete :** la cle maitresse donne tous les droits
+d'administration de la gateway. C'est acceptable pour un labo sur une machine
+unique, et inacceptable des que plusieurs services ou plusieurs personnes la
+partagent. Pour avoir une cle par service, avec quotas et modeles autorises par
+cle, il faut une base de donnees. Ne jamais ecrire cette cle dans un fichier
+versionne, ni la coller dans une conversation.
 
 ## Passer a une vraie gestion de cles (production)
 

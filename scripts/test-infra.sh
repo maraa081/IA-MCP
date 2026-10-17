@@ -81,10 +81,12 @@ if echo "$GATEWAY_MODELS" | jq -e --arg m "$PLANNER_MODEL" \
      '.data[] | select(.id == $m)' >/dev/null 2>&1; then
   ok "alias '$PLANNER_MODEL' declare dans la gateway"
 elif echo "$GATEWAY_MODELS" | grep -q 'no_db_connection'; then
-  # Toujours la meme limite : sans base, LiteLLM refuse /v1/models meme avec la
-  # cle maitresse. On retombe sur le fichier de configuration, en le disant.
+  # Ce message ne veut PAS dire que la gateway manque d'une base : il veut dire
+  # que la cle presentee n'est pas la cle maitresse. Sans base de donnees,
+  # LiteLLM n'accepte qu'elle et repond 'no_db_connection' pour toute autre cle.
+  # Verifier GATEWAY_API_KEY et GATEWAY_MASTER_KEY dans .env.
   if grep -q "model_name: $PLANNER_MODEL" "$PROJECT_ROOT/gateway/config.yaml"; then
-    ok "alias '$PLANNER_MODEL' declare dans gateway/config.yaml (API non verifiable sans base)"
+    ok "alias '$PLANNER_MODEL' declare dans gateway/config.yaml (cle refusee par la gateway)"
   else
     ko "alias '$PLANNER_MODEL' introuvable dans gateway/config.yaml"
   fi
