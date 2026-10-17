@@ -130,20 +130,23 @@ navigateur -> Open WebUI :3000 -> orchestrateur (conteneur, JWT)
                                       |-> serveurs MCP :9101 / :9102 / :9103
 ```
 
-**Choisir les outils.** Les cases a cocher ont disparu : elles appelaient les
-outils en direct, sans JWT, sans GPO et sans audit. A la place, chaque modele de
-la liste correspond a un jeu d'outils :
+**Choisir les outils : le modele auto.** Il n'y a plus de cases a cocher ni de
+modeles specialises : un seul modele, `Assistant`, recoit tous les outils
+autorises par la GPO. A chaque message, le planificateur propose l'outil utile et
+la GPO tranche :
 
-| Modele | Outils autorises |
+| Ce que vous demandez | Outil choisi automatiquement |
 | --- | --- |
-| Assistant | tous ceux autorises par la GPO |
-| Assistant sans outil | aucun (reponse directe) |
-| Assistant resume | `summarize_text` |
-| Assistant code | les 4 outils de la base de code |
-| Assistant doc | `code_to_technical_doc` |
+| un resume de texte | `summarize_text` |
+| le nombre de fichiers indexes | `code_disponible` |
+| une recherche dans le code | `chercher_code` |
+| l'explication d'un fichier | `resumer_code` |
+| la documentation d'un fichier | `documenter_code` |
+| la documentation d'un code colle | `code_to_technical_doc` |
+| une salutation, une question generale | reponse directe, sans outil |
 
-C'est une **intersection** avec la GPO, jamais un elargissement : choisir un
-modele ne peut pas donner plus de droits que le role porte par le jeton.
+Le choix reste une **intersection** avec la GPO : le modele ne peut jamais
+appeler un outil que le role du jeton n'autorise pas.
 
 **JWT.** `./scripts/openwebui.sh connect` fabrique un jeton de service
 (sub `openwebui`, role `analyst`, duree 365 jours), l'ecrit dans

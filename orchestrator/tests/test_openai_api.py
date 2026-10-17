@@ -105,16 +105,22 @@ def test_la_reponse_non_stream_est_au_format_openai(utilisateur: AuthenticatedUs
     assert corps_reponse["choices"][0]["finish_reason"] == "stop"
 
 
-def test_le_modele_choisi_restreint_les_outils(utilisateur: AuthenticatedUser) -> None:
+def test_le_modele_auto_laisse_la_gpo_decider(utilisateur: AuthenticatedUser) -> None:
+    """Le modele "Assistant" ne restreint rien : la GPO est la seule autorite."""
+    pipeline = FakePipeline()
+    client(pipeline, utilisateur).post("/v1/chat/completions", json=corps(modele="Assistant"))
+
+    assert pipeline.appels[0]["allowed_tools"] is None
+
+
+def test_un_modele_inconnu_ne_recoit_aucun_outil(utilisateur: AuthenticatedUser) -> None:
+    """Ancienne conversation ou identifiant errone : on retombe sur le plus sur."""
     pipeline = FakePipeline()
     client(pipeline, utilisateur).post(
         "/v1/chat/completions", json=corps(modele="Assistant resume")
     )
 
-    assert pipeline.appels[0]["allowed_tools"] == {"summarize_text"}
-    # Sans restriction (modele "Assistant"), le jeu est None : la GPO decide.
-    client(pipeline, utilisateur).post("/v1/chat/completions", json=corps(modele="Assistant"))
-    assert pipeline.appels[1]["allowed_tools"] is None
+    assert pipeline.appels[0]["allowed_tools"] == set()
 
 
 def test_l_historique_est_transmis_au_pipeline(utilisateur: AuthenticatedUser) -> None:

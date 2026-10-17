@@ -41,29 +41,17 @@ from ..security.dependencies import get_current_user, get_services
 router = APIRouter(prefix="/v1", tags=["openai"])
 
 # --- Catalogue des modeles ---------------------------------------------------
-# None  : tous les outils autorises par la GPO pour les roles du jeton.
-# set() : aucun outil (reponse directe uniquement).
-# Un ensemble : intersection avec les droits de la GPO (jamais un elargissement).
+# Un seul modele, volontairement : l'utilisateur ne doit pas avoir a choisir son
+# outil avant de savoir ce qu'il va demander. Le planificateur propose l'outil,
+# la GPO tranche, et le pipeline repond.
+#
+# `tools` = None signifie "tous les outils autorises par la GPO". Un ensemble
+# nomme restreindrait le catalogue (intersection, jamais elargissement) : c'est
+# la porte ouverte si un jour un modele specialise redevient utile.
 MODELES: dict[str, dict[str, Any]] = {
     "Assistant": {
         "tools": None,
-        "description": "Tous les outils autorises par la GPO",
-    },
-    "Assistant sans outil": {
-        "tools": set(),
-        "description": "Reponse directe, aucun outil",
-    },
-    "Assistant resume": {
-        "tools": {"summarize_text"},
-        "description": "Resume de texte uniquement",
-    },
-    "Assistant code": {
-        "tools": {"code_disponible", "chercher_code", "resumer_code", "documenter_code"},
-        "description": "Base de code indexee (chercher, resumer, documenter)",
-    },
-    "Assistant doc": {
-        "tools": {"code_to_technical_doc"},
-        "description": "Documentation d'un code colle dans le message",
+        "description": "Choisit automatiquement les outils autorises par la GPO",
     },
 }
 

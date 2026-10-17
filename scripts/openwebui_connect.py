@@ -109,8 +109,7 @@ def main() -> None:
     if statut != 200:
         raise SystemExit(f"  [ko] lecture des modeles refusee ({statut})")
     identifiants_modeles = [m.get("id") for m in modeles.get("data", [])]
-    attendus = {"Assistant", "Assistant sans outil", "Assistant resume",
-                "Assistant code", "Assistant doc"}
+    attendus = {"Assistant"}
     presents = attendus & set(identifiants_modeles)
     print(f"  modeles visibles : {', '.join(sorted(identifiants_modeles)) or '(aucun)'}")
     if not presents:
