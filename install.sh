@@ -36,6 +36,10 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
+# Arguments d'origine, conserves pour pouvoir reexecuter le script tel quel
+# (voir activer_docker_sans_reconnexion).
+ARGS_ORIGINAUX=("$@")
+
 MODELE=""
 CTX_PLANNER=""
 CTX_WRITER=""
@@ -135,6 +139,34 @@ demarrer_ollama() {
   done
   ko "Ollama ne repond pas sur $url"
   return 1
+}
+
+activer_docker_sans_reconnexion() {
+  # Sur une machine vierge, `usermod -aG docker` n'agit qu'a la prochaine
+  # session : le socket /var/run/docker.sock (groupe docker) reste inaccessible
+  # au shell courant. Pour une installation reellement « one shot », on se
+  # re-execute UNE fois sous ce groupe via `sg docker` (qui propage le groupe
+  # sans reconnexion). En root, inutile : root accede au socket tel quel.
+  [[ "${EUID}" -ne 0 ]] || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  docker info >/dev/null 2>&1 && return 0
+  [[ -n "${_IA_MCP_DOCKER_REEXEC:-}" ]] && return 0
+
+  $SUDO systemctl start docker 2>/dev/null || true
+  sleep 1
+  docker info >/dev/null 2>&1 && { ok "docker actif"; return 0; }
+
+  if ! getent group docker 2>/dev/null | grep -qw "${USER}"; then
+    $SUDO usermod -aG docker "${USER}" 2>/dev/null || true
+  fi
+
+  if getent group docker 2>/dev/null | grep -qw "${USER}"; then
+    note "groupe docker ajoute : reexecution sous le groupe docker (une fois)"
+    exec sg docker -c "export _IA_MCP_DOCKER_REEXEC=1; $(printf '%q ' "$PROJECT_ROOT/install.sh" "${ARGS_ORIGINAUX[@]}")"
+  fi
+
+  note "docker inaccessible (demon ou groupe) : PostgreSQL et Open WebUI seront sautes"
+  note "  relancer ./install.sh apres reconnexion"
 }
 
 # --- Detection ---------------------------------------------------------------
@@ -270,6 +302,7 @@ else
     exit 1
   fi
   demarrer_ollama || exit 1
+  activer_docker_sans_reconnexion
 fi
 
 # --- 2. Choix du modele ------------------------------------------------------
