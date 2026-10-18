@@ -65,9 +65,18 @@ ollama pull qwen3.5:2b
 
 ## Prerequis par systeme
 
-**Windows (WSL2).** Installer Ollama cote Windows ou dans WSL, puis Docker
-Desktop. Le script doit tourner dans WSL, pas dans PowerShell. Docker Desktop
-doit etre demarre avant.
+**Windows (WSL2).** Lancer `install.cmd` a la racine du clone (double-clic ou
+`install.cmd` depuis le dossier). Il convertit le chemin et execute `install.sh`
+dans la distribution WSL par defaut, puis rappelle les deux dependances qui
+viennent de Windows : Docker Desktop demarre avec l'integration WSL activee, et
+Ollama installe **dans WSL** (pas seulement cote Windows) :
+
+```
+wsl -e bash -lc "curl -fsSL https://ollama.com/install.sh | sh"
+```
+
+Le lanceur accepte les memes options que `install.sh` (`--model`, `--yes`,
+`--dry-run`). Un double-clic laisse la fenetre ouverte a la fin.
 
 **Linux.** `python3` et `python3-venv`, `curl`, `docker` (ou Podman avec le
 demon compatible), Ollama via `curl -fsSL https://ollama.com/install.sh | sh`.
@@ -101,6 +110,8 @@ Regle : **Docker Desktop d'abord, puis `./scripts/up.sh`.**
 | Ollama tue sans message | memoire insuffisante | baisser `num_ctx` puis retester |
 | Port 3000 ou 4000 deja pris | autre service | changer `OPENWEBUI_PORT` dans `.env` |
 | Modeles vides dans Open WebUI | JWT expire | `./scripts/openwebui.sh connect` |
+| `install.cmd` dit que WSL2 est absent | WSL non installe, ou distribution par defaut absente | PowerShell admin : `wsl --install`, redemarrer |
+| `install.cmd` : chemin WSL vide | clone dans un chemin UNC (`\\wsl$\...`) | cloner sur `C:\`, ou lancer `bash install.sh` depuis WSL |
 
 ## Ou sont les secrets
 

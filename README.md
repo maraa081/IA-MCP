@@ -89,6 +89,9 @@ propose un modele, installe les environnements et demarre la pile.
 ./install.sh
 ```
 
+Sous Windows, lancer `install.cmd` (meme dossier) : il execute `install.sh` dans
+WSL2 et verifie les dependances cote Windows.
+
 Le guide detaille (choix du modele selon la machine, options, depannage) est
 dans [docs/installation.md](docs/installation.md). Equivalent non interactif :
 
