@@ -15,6 +15,29 @@ else
 fi
 
 echo "== Gateway LiteLLM (point d'entree unique des modeles)"
+# Si une base est configuree, elle doit etre joignable AVANT la gateway : sans
+# elle, LiteLLM meurt au demarrage (erreur P1001). On (re)demarre le conteneur
+# PostgreSQL si Docker est disponible, sinon on previent clairement.
+if [[ -n "${LITELLM_DATABASE_URL:-}" ]]; then
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    if docker ps -a --format '{{.Names}}' | grep -qx litellm-postgres; then
+      docker start litellm-postgres >/dev/null 2>&1 || true
+      for _ in $(seq 1 30); do
+        docker exec litellm-postgres pg_isready -U litellm -d litellm >/dev/null 2>&1 && break
+        sleep 1
+      done
+      docker exec litellm-postgres pg_isready -U litellm -d litellm >/dev/null 2>&1 \
+        && echo "  [ok]   PostgreSQL pret" \
+        || echo "  [note] PostgreSQL ne repond pas encore (voir scripts/setup_db.sh)"
+    else
+      echo "  [note] LITELLM_DATABASE_URL definie mais conteneur litellm-postgres absent"
+      echo "         (./scripts/setup_db.sh pour le creer)"
+    fi
+  else
+    echo "  [note] LITELLM_DATABASE_URL definie mais Docker indisponible :"
+    echo "         la gateway risque d'echouer (P1001). Demarrer Docker Desktop."
+  fi
+fi
 start_background gateway "$LOG_DIR/gateway.log" \
   "$VENV_GATEWAY/bin/litellm" --config "$PROJECT_ROOT/gateway/config.yaml" \
   --host "${GATEWAY_HOST:-127.0.0.1}" --port "${GATEWAY_PORT:-4000}"

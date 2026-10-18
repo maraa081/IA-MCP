@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Installe prisma si besoin, redemarre la gateway et verifie les migrations.
+# Garantit le client prisma (via litellm[extra_proxy]) si besoin, redemarre la
+# gateway et verifie les migrations.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 source scripts/common.sh
@@ -9,7 +10,10 @@ if ./.venv-gateway/bin/python -c "import prisma" 2>/dev/null; then
   echo "  deja installe : $(./.venv-gateway/bin/python -c 'import importlib.metadata as m; print(m.version("prisma"))')"
 else
   echo "  installation..."
-  ./.venv-gateway/bin/pip install --quiet prisma 2>&1 | tail -3
+  # litellm[extra_proxy] (et non prisma seul) : la version de prisma est alors
+  # alignee sur celle attendue par LiteLLM. Un prisma isole peut etre trop recent
+  # ou trop ancien et rendre le client inutilisable.
+  ./.venv-gateway/bin/pip install --quiet 'litellm[extra_proxy]' 2>&1 | tail -3
   ./.venv-gateway/bin/python -c "import prisma, importlib.metadata as m; print('  installe :', m.version('prisma'))" || echo "  ECHEC"
 fi
 
@@ -18,7 +22,7 @@ stop_background gateway
 sleep 2
 start_background gateway "$LOG_DIR/gateway.log" \
   "$VENV_GATEWAY/bin/litellm" --config "$PROJECT_ROOT/gateway/config.yaml" \
-  --host 127.0.0.1 --port 4000
+  --host "${GATEWAY_HOST:-127.0.0.1}" --port "${GATEWAY_PORT:-4000}"
 
 echo "=== attente ==="
 for _ in $(seq 1 90); do

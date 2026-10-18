@@ -105,7 +105,7 @@ case "${1:-status}" in
       --credentials "$VAR_DIR/openwebui-admin.txt"
     TOKEN="$("$PY" "$PROJECT_ROOT/scripts/mint_token.py" \
       --sub openwebui --roles analyst --ttl 31536000 --quiet)"
-    printf '%s' "$TOKEN" > "$VAR_DIR/openwebui-token.txt"
+    printf '%s\n' "$TOKEN" > "$VAR_DIR/openwebui-token.txt"
     chmod 600 "$VAR_DIR/openwebui-token.txt"
     "$PY" "$PROJECT_ROOT/scripts/openwebui_connect.py" \
       --base "http://127.0.0.1:$PORT" --orchestrateur "http://orchestrator-lab:8090/v1" \
@@ -119,7 +119,7 @@ case "${1:-status}" in
     # d'outils (chemin sans JWT, sans GPO, sans audit).
     TOKEN="$("$PY" "$PROJECT_ROOT/scripts/mint_token.py" \
       --sub openwebui --roles analyst --ttl 31536000 --quiet)"
-    printf '%s' "$TOKEN" > "$VAR_DIR/openwebui-token.txt"
+    printf '%s\n' "$TOKEN" > "$VAR_DIR/openwebui-token.txt"
     chmod 600 "$VAR_DIR/openwebui-token.txt"
     "$PY" "$PROJECT_ROOT/scripts/openwebui_connect.py" \
       --base "http://127.0.0.1:$PORT" \

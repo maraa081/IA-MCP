@@ -69,10 +69,14 @@ curl -s http://127.0.0.1:4000/v1/chat/completions \
 # -> key_model_access_denied
 ```
 
-**Un piege a connaitre** : avec une installation de LiteLLM par `pip`, le client
-prisma doit etre genere a la main (`prisma generate`, voir `scripts/enable_db.sh`).
-Dans l'image Docker officielle, il est deja cuit au build, ce qui explique que le
-probleme n'apparaisse pas dans la documentation courante.
+**Un piege a connaitre** : avec une installation de LiteLLM par `pip`, il faut
+l'extra `litellm[extra_proxy]` (et non `litellm[proxy]` seul) pour embarquer le
+client prisma. Sans lui, LiteLLM demarre mais n'applique jamais ses migrations :
+les cles virtuelles restent inutilisables, sans erreur nette. `gateway/requirements.txt`
+utilise deja `extra_proxy` ; `scripts/enable_db.sh` verifie/repare ce point si une
+ancienne installation etait en `proxy` seul. Dans l'image Docker officielle, le
+client est deja cuit au build, ce qui explique que le probleme n'apparaisse pas
+dans la documentation courante.
 
 C'est acceptable pour un labo sur une seule machine, et inacceptable des que
 plusieurs services ou plusieurs personnes partagent la gateway.

@@ -190,6 +190,11 @@ diagnostic_gateway() {
     note "des migrations Prisma apparaissent dans le journal"
     note "  au premier demarrage elles peuvent prendre plusieurs minutes"
   fi
+  if grep -qi "prisma CLI is neither on PATH" "$journal"; then
+    note "prisma absent : LiteLLM n'a pas pu preparer la base (migrations)"
+    note "  correction : $VENV_GATEWAY/bin/pip install 'litellm[extra_proxy]'"
+    note "  ou : ./scripts/enable_db.sh"
+  fi
   if grep -qi "traceback" "$journal"; then
     note "derniere erreur du journal :"
     grep -i -A4 "traceback" "$journal" | tail -6 | sed 's/^/         /'
@@ -232,6 +237,32 @@ else
     fi
   else
     info "relancer avec --fix pour redemarrer la gateway"
+  fi
+fi
+
+# La gateway a besoin du client prisma des que LITELLM_DATABASE_URL est defini
+# (base des cles virtuelles, budgets). Sans lui, LiteLLM demarre mais n'applique
+# jamais ses migrations : les cles virtuelles restent inutilisables, sans erreur
+# nette. C'est le piege classique d'une installation LiteLLM par pip.
+if [[ -n "${LITELLM_DATABASE_URL:-}" ]]; then
+  if "$VENV_GATEWAY/bin/python" -c "import prisma" >/dev/null 2>&1; then
+    ok "client prisma present (migrations de la gateway possibles)"
+  else
+    ko "client prisma absent : migrations de la gateway impossibles"
+    if reparer; then
+      reparation "installation de litellm[extra_proxy]" \
+        "$VENV_GATEWAY/bin/pip" install --quiet 'litellm[extra_proxy]'
+      reparation "redemarrage de la gateway (pour appliquer les migrations)" relancer_gateway
+      if attendre_http "$GATEWAY_URL/health/liveliness" "gateway" "$DELAI_GATEWAY"; then
+        ok "gateway repond apres installation de prisma"
+        GATEWAY_OK=1
+      else
+        ko "gateway toujours muette apres installation de prisma"
+      fi
+    else
+      info "corriger avec : $VENV_GATEWAY/bin/pip install 'litellm[extra_proxy]'"
+      info "ou : ./scripts/enable_db.sh"
+    fi
   fi
 fi
 

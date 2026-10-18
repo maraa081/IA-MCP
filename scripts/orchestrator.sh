@@ -83,7 +83,7 @@ demarrer() {
       "$IMAGE" >/dev/null 2>&1 \
       && echo "  conteneur cree (reseau $RESEAU, aucun port publie)"
   fi
-  printf '%s' "$ip" > "$IP_FICHIER"
+  printf '%s\n' "$ip" > "$IP_FICHIER"
 
   # Sante vue de l'interieur du conteneur : c'est exactement le chemin qu'utilise
   # Open WebUI. Un test depuis l'hote ne prouverait rien (pas de port publie).

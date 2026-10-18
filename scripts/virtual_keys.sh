@@ -10,7 +10,7 @@ stop_background gateway
 sleep 2
 start_background gateway "$LOG_DIR/gateway.log" \
   "$VENV_GATEWAY/bin/litellm" --config "$PROJECT_ROOT/gateway/config.yaml" \
-  --host 127.0.0.1 --port 4000
+  --host "${GATEWAY_HOST:-127.0.0.1}" --port "${GATEWAY_PORT:-4000}"
 for _ in $(seq 1 90); do
   curl -fsS --max-time 3 "$GATEWAY_URL/health/liveliness" >/dev/null 2>&1 && break
   sleep 2

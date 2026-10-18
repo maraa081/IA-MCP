@@ -388,7 +388,14 @@ fi
 # --- 6. Base de donnees, demarrage ------------------------------------------
 titre "6/7  Base PostgreSQL et demarrage de la pile"
 if [[ "$AVEC_DOCKER" -eq 1 ]]; then
-  "$PROJECT_ROOT/scripts/setup_db.sh" || note "setup_db.sh a echoue : la pile demarrera sans base"
+  if "$PROJECT_ROOT/scripts/setup_db.sh"; then
+    # La base est la : LiteLLM a besoin de son client prisma pour appliquer ses
+    # migrations (cles virtuelles, budgets). Sans lui, il demarre en mode degrade
+    # sans erreur nette. enable_db.sh est idempotent.
+    "$PROJECT_ROOT/scripts/enable_db.sh" || note "enable_db.sh a echoue : relancer ./scripts/enable_db.sh"
+  else
+    note "setup_db.sh a echoue : la pile demarrera sans base"
+  fi
 else
   note "PostgreSQL saute (--no-docker ou Docker indisponible)"
 fi
