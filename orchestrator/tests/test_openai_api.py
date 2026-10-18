@@ -16,7 +16,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from orchestrator.app.pipeline import PipelineOutcome, PolicyViolation
+from orchestrator.app.pipeline import PipelineOutcome, PolicyViolation, ToolCallTrace
 from orchestrator.app.routers import openai
 from orchestrator.app.security import AuthenticatedUser
 from orchestrator.app.security.dependencies import get_current_user, get_services
@@ -25,9 +25,15 @@ from orchestrator.app.security.dependencies import get_current_user, get_service
 class FakePipeline:
     """Doublure du pipeline : enregistre les arguments, rend une reponse fixe."""
 
-    def __init__(self, answer: str = "reponse de test", violation: PolicyViolation | None = None):
+    def __init__(
+        self,
+        answer: str = "reponse de test",
+        violation: PolicyViolation | None = None,
+        tool_trace: list[ToolCallTrace] | None = None,
+    ):
         self.answer = answer
         self.violation = violation
+        self.tool_trace = tool_trace or []
         self.appels: list[dict[str, Any]] = []
 
     async def run(self, **kwargs: Any) -> PipelineOutcome:
@@ -38,7 +44,9 @@ class FakePipeline:
             trace_id="trace-test",
             answer=self.answer,
             model_used="planner",
-            tools_used=[],
+            tools_used=[trace.tool for trace in self.tool_trace],
+            tool_trace=self.tool_trace,
+            planner_mode="native",
             latency_ms=1,
         )
 
@@ -173,6 +181,53 @@ def test_un_refus_de_politique_devient_une_erreur_openai(utilisateur: Authentica
     erreur = reponse.json()["error"]
     assert erreur["type"] == "policy_violation"
     assert "limits.max_prompt_chars" in erreur["message"]
+
+
+def test_le_raisonnement_est_expose_en_non_stream(utilisateur: AuthenticatedUser) -> None:
+    """Quand des outils sont appeles, la trace part dans `reasoning_content`."""
+    pipeline = FakePipeline(
+        answer="Voici le resume.",
+        tool_trace=[
+            ToolCallTrace(
+                tool="resumer_code",
+                arguments={"reference": "42"},
+                decision="allowed",
+                duration_ms=120,
+            )
+        ],
+    )
+    reponse = client(pipeline, utilisateur).post("/v1/chat/completions", json=corps())
+
+    message = reponse.json()["choices"][0]["message"]
+    assert "resumer_code" in message["reasoning_content"]
+    assert message["content"] == "Voici le resume."
+
+
+def test_le_raisonnement_est_emporte_par_le_flux_sse(utilisateur: AuthenticatedUser) -> None:
+    """Le flux SSE emet la trace en `reasoning_content` avant la reponse."""
+    pipeline = FakePipeline(
+        answer="abc",
+        tool_trace=[
+            ToolCallTrace(
+                tool="chercher_code",
+                arguments={"requete": "auth"},
+                decision="allowed",
+                duration_ms=30,
+            )
+        ],
+    )
+    reponse = client(pipeline, utilisateur).post(
+        "/v1/chat/completions", json={**corps(), "stream": True}
+    )
+
+    lignes = [l for l in reponse.text.splitlines() if l.startswith("data: ")]
+    raisonnement = "".join(
+        json.loads(l[6:])["choices"][0]["delta"].get("reasoning_content", "")
+        for l in lignes
+        if l.startswith("data: {")
+    )
+    assert "chercher_code" in raisonnement
+    assert raisonnement.count("chercher_code") == 1
 
 
 def test_un_message_vide_est_refuse(utilisateur: AuthenticatedUser) -> None:

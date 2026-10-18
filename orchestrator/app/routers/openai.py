@@ -34,7 +34,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..config import Settings
 from ..container import Services
-from ..pipeline import PolicyViolation
+from ..pipeline import PipelineOutcome, PolicyViolation
 from ..security import AuthenticatedUser
 from ..security.dependencies import get_current_user, get_services
 
@@ -117,6 +117,30 @@ def _morceaux(texte: str, taille: int = 160) -> list[str]:
     if not texte:
         return []
     return [texte[i : i + taille] for i in range(0, len(texte), taille)]
+
+
+def _trace_raisonnement(resultat: PipelineOutcome) -> str | None:
+    """Trace lisible du chemin de reflexion (outils proposes, decisions, durees).
+
+    Open WebUI l'affiche dans sa section pliable « reflexion » quand le flux
+    contient des deltas `reasoning_content`. On ne la produit que si le modele a
+    propose des outils : une reponse directe n'a pas de chemin a montrer, et
+    l'ajouter gonflerait chaque reponse inutilement.
+    """
+    if not resultat.tool_trace:
+        return None
+
+    decisions = {"allowed": "autorise", "denied": "refuse", "error": "erreur"}
+    lignes = [f"Planification : mode {resultat.planner_mode}, {resultat.latency_ms} ms"]
+    for trace in resultat.tool_trace:
+        statut = decisions.get(trace.decision, trace.decision)
+        arguments = json.dumps(trace.arguments, ensure_ascii=False) if trace.arguments else ""
+        duree = f"{trace.duration_ms} ms" if trace.duration_ms is not None else "duree ?"
+        ligne = f"- {trace.tool}({arguments}) -> {statut} ({duree})"
+        if trace.decision != "allowed" and trace.reason:
+            ligne += f" : {trace.reason}"
+        lignes.append(ligne)
+    return "\n".join(lignes)
 
 
 def _identifiant() -> str:
@@ -211,7 +235,12 @@ async def chat_completions(
     creation = int(time.time())
     flux = bool(payload.get("stream"))
 
+    raisonnement = _trace_raisonnement(resultat)
+
     if not flux:
+        message_reponse: dict[str, Any] = {"role": "assistant", "content": resultat.answer}
+        if raisonnement:
+            message_reponse["reasoning_content"] = raisonnement
         return {
             "id": identifiant,
             "object": "chat.completion",
@@ -220,7 +249,7 @@ async def chat_completions(
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": resultat.answer},
+                    "message": message_reponse,
                     "finish_reason": "stop",
                 }
             ],
@@ -241,6 +270,18 @@ async def chat_completions(
             "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
         }
         yield f"data: {json.dumps(debut, ensure_ascii=False)}\n\n"
+        if raisonnement:
+            for morceau in _morceaux(raisonnement, taille=120):
+                paquet = {
+                    "id": identifiant,
+                    "object": "chat.completion.chunk",
+                    "created": creation,
+                    "model": nom_modele,
+                    "choices": [
+                        {"index": 0, "delta": {"reasoning_content": morceau}, "finish_reason": None}
+                    ],
+                }
+                yield f"data: {json.dumps(paquet, ensure_ascii=False)}\n\n"
         for morceau in _morceaux(resultat.answer):
             paquet = {
                 "id": identifiant,
