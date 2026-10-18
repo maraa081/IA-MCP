@@ -82,8 +82,24 @@ comme demande. Tout est prevu pour en ajouter sans toucher au coeur du code.
 
 ## Demarrage
 
+Sur un clone frais, une seule commande suffit : elle verifie les prerequis,
+propose un modele, installe les environnements et demarre la pile.
+
 ```bash
-./scripts/bootstrap.sh     # environnements Python, cles JWT, .env, modeles Ollama
+./install.sh
+```
+
+Le guide detaille (choix du modele selon la machine, options, depannage) est
+dans [docs/installation.md](docs/installation.md). Equivalent non interactif :
+
+```bash
+./install.sh --model qwen3.5:2b --yes   # PC sans GPU, 8 Go de RAM
+```
+
+Les etapes separees restent disponibles si vous voulez faire la main :
+
+```bash
+./scripts/bootstrap.sh     # environnements Python, cles JWT, .env, modele Ollama
 ./scripts/up.sh            # Ollama, gateway, serveurs MCP, orchestrateur (conteneur)
 ./scripts/openwebui.sh up  # interface Open WebUI
 ./scripts/openwebui.sh connect  # branche Open WebUI sur l'orchestrateur (JWT)
@@ -493,10 +509,14 @@ ce qui fait la difference entre une maquette et un service en production.
 ## Prerequis
 
 - Python 3.11 ou plus (teste sur 3.12)
-- Ollama avec le modele `qwen3.5:4b` (recupere par `bootstrap.sh`)
+- Ollama avec un modele Qwen (le choix se fait a l'installation :
+  `qwen3.5:4b` par defaut, `qwen3.5:2b` pour une machine modeste)
 - Docker (pour PostgreSQL, la base des cles virtuelles de la gateway)
 - `curl` et `jq` pour les scripts de demonstration
 - Pas de GPU necessaire : tout tourne sur CPU
+
+`./install.sh` verifie ces points avant de modifier quoi que ce soit et dit
+precisement ce qui manque.
 
 PostgreSQL est le seul service en conteneur. Si vous n'avez pas Docker, la pile
 fonctionne encore : LiteLLM retombe en mode sans base, ou la seule cle valide est

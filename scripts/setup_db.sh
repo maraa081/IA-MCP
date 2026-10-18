@@ -3,7 +3,7 @@
 # Le mot de passe est genere ici et n'est jamais affiche : il ne sort que par le
 # fichier .env (non versionne) et par les variables du conteneur.
 set -uo pipefail
-cd /home/maxim/.openclaw/workspace/mcp-orchestrator-lab || exit 1
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 CONTENEUR="litellm-postgres"
 PORT="5433"

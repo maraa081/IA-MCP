@@ -2,7 +2,7 @@
 # Redemarre la gateway avec la base, cree deux cles virtuelles (une par service)
 # et les enregistre dans .env. Aucune cle n'est affichee.
 set -uo pipefail
-cd /home/maxim/.openclaw/workspace/mcp-orchestrator-lab || exit 1
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 source scripts/common.sh
 
 echo "=== 1. redemarrage de la gateway ==="

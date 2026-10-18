@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installe prisma si besoin, redemarre la gateway et verifie les migrations.
 set -uo pipefail
-cd /home/maxim/.openclaw/workspace/mcp-orchestrator-lab || exit 1
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 source scripts/common.sh
 
 echo "=== prisma ==="

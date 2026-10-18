@@ -85,7 +85,7 @@ Utile pour tester un modele sans passer par l'orchestrateur.
 versionne (verifie : aucun secret dans l'historique du depot).
 
 ```bash
-cd /home/maxim/.openclaw/workspace/mcp-orchestrator-lab
+cd mcp-orchestrator-lab      # racine du clone
 source .env          # place GATEWAY_MASTER_KEY dans l'environnement
 ```
 

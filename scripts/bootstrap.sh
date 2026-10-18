@@ -37,12 +37,17 @@ else
 fi
 
 echo "== 5/5  Modeles Ollama"
-if ! curl -fsS --max-time 3 "$OLLAMA_URL/api/version" >/dev/null 2>&1; then
+MODELE_OLLAMA="${OLLAMA_MODEL:-qwen3.5:4b}"
+if [[ "${1:-}" == "--no-model" ]]; then
+  echo "  [skip] telechargement du modele (--no-model)"
+elif ! curl -fsS --max-time 3 "$OLLAMA_URL/api/version" >/dev/null 2>&1; then
   echo "  Ollama ne repond pas sur $OLLAMA_URL : lancez 'ollama serve' puis relancez."
 else
   # Le meme modele sert aux deux alias (planner et writer) : on economise la
-  # memoire. Changer de modele = editer gateway/config.yaml.
-  ollama pull qwen3.5:4b
+  # memoire. Le nom vient de OLLAMA_MODEL (.env) ; install.sh le choisit et
+  # scripts/set_model.py reporte ce choix dans gateway/config.yaml.
+  echo "  modele : $MODELE_OLLAMA"
+  ollama pull "$MODELE_OLLAMA"
 fi
 
 cat <<'EOF'

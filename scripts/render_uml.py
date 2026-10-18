@@ -15,7 +15,7 @@ import subprocess
 import zlib
 from pathlib import Path
 
-DOCS = Path("/home/maxim/.openclaw/workspace/mcp-orchestrator-lab/docs/uml")
+DOCS = Path(__file__).resolve().parents[1] / "docs" / "uml"
 ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
 
 
