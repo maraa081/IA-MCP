@@ -120,9 +120,21 @@ Regle : **Docker Desktop d'abord, puis `./scripts/up.sh`.**
 
 ## Depannage
 
+La premiere chose a lancer en cas de doute :
+
+```bash
+./scripts/doctor.sh          # lecture seule, aucune modification
+./scripts/doctor.sh --fix    # repare ce qui peut l'etre, puis re-verifie
+./scripts/doctor.sh --full   # ajoute un appel reel au modele
+```
+
+Il parcourt la pile dans l'ordre des dependances (Docker, PostgreSQL, gateway,
+Ollama, MCP, orchestrateur, Open WebUI) et affiche une ligne par couche. Une
+couche en echec n'arrete pas le diagnostic : on obtient la photo complete.
+
 | Symptome | Cause probable | Action |
 | --- | --- | --- |
-| `gateway injoignable` dans Open WebUI | gateway morte (souvent P1001) | `tail -40 var/logs/gateway.log`, relancer `./scripts/up.sh` |
+| `gateway injoignable` dans Open WebUI | gateway morte (souvent P1001) | `./scripts/doctor.sh --fix` |
 | `docker: command not found` | Docker Desktop ferme | demarrer Docker Desktop |
 | Ollama ne repond pas | service arrete | `ollama serve` ou relancer l'application |
 | Reponse tres lente | modele trop gros pour le CPU | choisir 2b ou 0.8b |
@@ -131,6 +143,27 @@ Regle : **Docker Desktop d'abord, puis `./scripts/up.sh`.**
 | Modeles vides dans Open WebUI | JWT expire | `./scripts/openwebui.sh connect` |
 | `install.cmd` dit que WSL2 est absent | WSL non installe, ou distribution par defaut absente | PowerShell admin : `wsl --install`, redemarrer |
 | `install.cmd` : chemin WSL vide | clone dans un chemin UNC (`\\wsl$\...`) | cloner sur `C:\`, ou lancer `bash install.sh` depuis WSL |
+
+## Delais d'attente
+
+Les scripts attendent volontairement longtemps avant de declarer une panne :
+
+| Etape | Delai | Pourquoi |
+| --- | --- | --- |
+| Gateway au demarrage | 180 s | migrations Prisma et chaine d'outils au premier lancement |
+| Ollama au demarrage | 90 s | chargement du modele en memoire |
+| Appel de modele | 600 s | premiere inference CPU d'un modele 4b |
+
+Pendant l'attente, une ligne `... gateway : toujours en cours (15s)` montre que le
+script avance. Un message `ne repond pas apres 60s` signifiait souvent un delai
+trop court, pas une panne : c'est corrige.
+
+Les delais sont reglables :
+
+```bash
+./scripts/doctor.sh --gateway-timeout 300 --model-timeout 900
+DELAI_MODELE=900 ./install.sh --yes
+```
 
 ## Ou sont les secrets
 

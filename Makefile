@@ -1,6 +1,6 @@
 # Raccourcis du labo. Toutes les cibles renvoient vers scripts/, qui contient la
 # logique : le Makefile n'est qu'une memoire de ce qui est possible.
-.PHONY: help bootstrap keys token up down demo test test-infra logs audit clean
+.PHONY: help bootstrap keys token up down demo test test-infra doctor logs audit clean
 
 help:
 	@echo "make bootstrap  Installation complete (venvs, cles, .env, modeles)"
@@ -11,6 +11,7 @@ help:
 	@echo "make demo       Demonstration de bout en bout"
 	@echo "make test       Tests unitaires (pytest)"
 	@echo "make test-infra Verifie que la pile reelle fonctionne (ARGS=--full)"
+	@echo "make doctor     Diagnostique la pile (ARGS=--fix pour reparer)"
 	@echo "make logs       Suit les journaux applicatifs"
 	@echo "make audit      Affiche les dix derniers evenements d'audit"
 
@@ -40,6 +41,9 @@ test:
 
 test-infra:
 	./scripts/test-infra.sh $(ARGS)
+
+doctor:
+	./scripts/doctor.sh $(ARGS)
 
 logs:
 	tail -f var/logs/*.log

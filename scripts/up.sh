@@ -11,14 +11,16 @@ if curl -fsS --max-time 3 "$OLLAMA_URL/api/version" >/dev/null 2>&1; then
   echo "  [ok]   Ollama deja actif"
 else
   start_background ollama "$LOG_DIR/ollama.log" ollama serve
-  wait_for_http "$OLLAMA_URL/api/version" "Ollama" 30
+  wait_for_http "$OLLAMA_URL/api/version" "Ollama" 90
 fi
 
 echo "== Gateway LiteLLM (point d'entree unique des modeles)"
 start_background gateway "$LOG_DIR/gateway.log" \
   "$VENV_GATEWAY/bin/litellm" --config "$PROJECT_ROOT/gateway/config.yaml" \
   --host "${GATEWAY_HOST:-127.0.0.1}" --port "${GATEWAY_PORT:-4000}"
-wait_for_http "$GATEWAY_URL/health/liveliness" "Gateway" 60 || \
+# 180 s : au premier demarrage, LiteLLM applique ses migrations Prisma et
+# telecharge sa chaine d'outils. 60 s suffisaient a faire croire a une panne.
+wait_for_http "$GATEWAY_URL/health/liveliness" "Gateway" 180 || \
   wait_for_http "$GATEWAY_URL/v1/models" "Gateway (v1/models)" 10 || true
 
 echo "== Serveurs MCP"

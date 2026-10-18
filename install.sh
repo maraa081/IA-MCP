@@ -422,8 +422,8 @@ else
   ko "liste des modeles vide ou refusee"
 fi
 
-note "premier appel : sur CPU un 4b peut prendre 30 a 90 s, c'est normal"
-REPONSE_CHAT=$(curl -sS --max-time 300 -X POST "$GATEWAY_URL/v1/chat/completions" \
+note "premier appel : sur CPU un 4b peut prendre de 30 s a plusieurs minutes"
+REPONSE_CHAT=$(curl -sS --max-time "${DELAI_MODELE:-600}" -X POST "$GATEWAY_URL/v1/chat/completions" \
   -H "$AUTH_HDR" \
   -H 'Content-Type: application/json' \
   -d "{\"model\":\"planner\",\"messages\":[{\"role\":\"user\",\"content\":\"Reponds exactement: OK\"}],\"max_tokens\":16}" \

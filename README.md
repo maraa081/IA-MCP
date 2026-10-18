@@ -108,6 +108,7 @@ Les etapes separees restent disponibles si vous voulez faire la main :
 ./scripts/openwebui.sh up  # interface Open WebUI
 ./scripts/openwebui.sh connect  # branche Open WebUI sur l'orchestrateur (JWT)
 ./scripts/demo.sh          # parcours complet commente, de bout en bout
+./scripts/doctor.sh        # diagnostic de la pile (--fix pour reparer)
 ./scripts/down.sh          # arret (--all pour arreter aussi Ollama)
 ```
 

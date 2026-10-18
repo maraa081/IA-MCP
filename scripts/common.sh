@@ -51,6 +51,11 @@ wait_for_http() {
       echo "  [ok]   $name"
       return 0
     fi
+    # Un premier demarrage peut etre long (migrations LiteLLM, chargement du
+    # modele) : on montre que le script avance au lieu de laisser croire a un gel.
+    if (( i % 15 == 0 )); then
+      printf '  ...    %s : toujours en cours (%ds)\n' "$name" "$i"
+    fi
     sleep 1
   done
   echo "  [ko]   $name ($url) : pas de reponse apres ${attempts}s"
