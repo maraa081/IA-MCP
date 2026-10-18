@@ -1,5 +1,5 @@
 # Gateway LiteLLM (proxy). Environnement Python separe : voir scripts/bootstrap.sh
-# [extra_proxy] inclut le client prisma : sans lui, LiteLLM ne peut pas appliquer
-# ses migrations de base (cles virtuelles, budgets) et demarre en mode degrade,
-# sans erreur nette. C'est le piege classique d'une install par pip.
+# [extra_proxy] embarque le paquet prisma, indispensable a la base (cles virtuelles,
+# budgets). Sans lui, LiteLLM ne peut pas preparer sa base. Le client genere, lui,
+# se produit via `prisma generate` : voir scripts/enable_db.sh (idempotent).
 litellm[extra_proxy]>=1.44

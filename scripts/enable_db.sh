@@ -6,6 +6,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 source scripts/common.sh
 
 echo "=== prisma ==="
+# Deux conditions pour que la gateway puisse utiliser la base :
+#   1. le paquet prisma (installe par litellm[extra_proxy]) ;
+#   2. le client genere : LiteLLM fournit schema.prisma mais pas le client, et
+#      un pip install ne le cuit pas (contrairement a l'image Docker). Sans
+#      generate, la gateway refuse de demarrer des qu'une base est configuree.
 if ./.venv-gateway/bin/python -c "import prisma" 2>/dev/null; then
   echo "  deja installe : $(./.venv-gateway/bin/python -c 'import importlib.metadata as m; print(m.version("prisma"))')"
 else
@@ -15,6 +20,23 @@ else
   # ou trop ancien et rendre le client inutilisable.
   ./.venv-gateway/bin/pip install --quiet 'litellm[extra_proxy]' 2>&1 | tail -3
   ./.venv-gateway/bin/python -c "import prisma, importlib.metadata as m; print('  installe :', m.version('prisma'))" || echo "  ECHEC"
+fi
+
+if ./.venv-gateway/bin/python -c "from prisma import Prisma" 2>/dev/null; then
+  echo "  client prisma deja genere"
+else
+  SCHEMA="$(./.venv-gateway/bin/python -c "import litellm, os; print(os.path.join(os.path.dirname(litellm.__file__), 'proxy', 'schema.prisma'))")"
+  echo "  generation du client prisma (schema : $SCHEMA)..."
+  # Le generateur prisma-client-py doit etre sur le PATH : la CLI prisma (Node)
+  # le lance comme sous-processus, et sans le venv/bin sur le PATH elle echoue
+  # avec 'prisma-client-py: not found'.
+  export PATH="$VENV_GATEWAY/bin:$PATH"
+  if prisma generate --schema "$SCHEMA"; then
+    echo "  client prisma genere"
+  else
+    echo "  ECHEC de la generation : voir le message ci-dessus"
+    exit 1
+  fi
 fi
 
 echo "=== redemarrage de la gateway ==="
