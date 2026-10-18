@@ -12,7 +12,8 @@ quel dossier.
 
 Il enchaine sept etapes :
 
-1. Verification des prerequis (Python 3.11+, `curl`, Ollama, Docker).
+1. Verification des prerequis, et installation de ce qui manque (paquets
+   systeme, Ollama, Docker sur Linux natif) apres confirmation.
 2. Choix du modele d'inference (menu, avec preselection selon la machine).
 3. Recapitulatif et confirmation (sauf `--yes`).
 4. Ecriture de `.env` et report du choix dans `gateway/config.yaml`.
@@ -20,7 +21,30 @@ Il enchaine sept etapes :
 6. `scripts/setup_db.sh` puis `scripts/up.sh` : PostgreSQL, gateway, serveurs MCP, orchestrateur.
 7. `scripts/openwebui.sh up|setup` puis verification de bout en bout.
 
-## Choix du modele
+## Dependances installees automatiquement
+
+Sur une machine vierge, `install.sh` ne s'arrete pas : il liste ce qui manque,
+demande confirmation, puis installe. Ce qui est couvert :
+
+| Element | Moyen | Remarque |
+| --- | --- | --- |
+| `curl`, `jq` | gestionnaire de paquets (`apt`, `dnf`, `pacman`) | `pacman` sur Arch |
+| Python 3.11+ et `venv` | paquets `python3`, `python3-venv`, `python3-pip` | necessaire aux environnements du projet |
+| Ollama | script officiel `ollama.com/install.sh` | installe le binaire et le service |
+| Docker | script officiel `get.docker.com` | **Linux natif seulement** |
+
+Deux cas particuliers :
+
+- **Sous WSL**, Docker n'est jamais installe par le script : il vient de Docker
+  Desktop, cote Windows. Sans Docker, la pile demarre quand meme (mode cle
+  maitresse seule, sans PostgreSQL).
+- **Docker fraichement installe sur Linux natif** : l'utilisateur est ajoute au
+  groupe `docker`, mais la session en cours ne l'a pas encore. Reconnectez-vous,
+  ou lancez `newgrp docker`, puis `./scripts/setup_db.sh`.
+
+Un mot de passe `sudo` peut etre demande. Pour n'installer aucune dependance,
+utiliser `--no-auto-install` : le script s'arrete alors en listant ce qui
+manque.
 
 Le labo utilise deux alias (`planner` et `writer`) qui pointent vers le meme
 modele physique. Le choix se fait donc une seule fois.
@@ -67,16 +91,11 @@ ollama pull qwen3.5:2b
 
 **Windows (WSL2).** Lancer `install.cmd` a la racine du clone (double-clic ou
 `install.cmd` depuis le dossier). Il convertit le chemin et execute `install.sh`
-dans la distribution WSL par defaut, puis rappelle les deux dependances qui
-viennent de Windows : Docker Desktop demarre avec l'integration WSL activee, et
-Ollama installe **dans WSL** (pas seulement cote Windows) :
+dans la distribution WSL par defaut. Si WSL2 ou une distribution Linux manque, il
+propose de lancer `wsl --install` (droits administrateur et redemarrage).
 
-```
-wsl -e bash -lc "curl -fsSL https://ollama.com/install.sh | sh"
-```
-
-Le lanceur accepte les memes options que `install.sh` (`--model`, `--yes`,
-`--dry-run`). Un double-clic laisse la fenetre ouverte a la fin.
+Les dependances Linux (Python, Ollama, jq) sont installees par `install.sh` dans
+WSL, apres confirmation. Seul Docker Desktop reste a installer cote Windows.
 
 **Linux.** `python3` et `python3-venv`, `curl`, `docker` (ou Podman avec le
 demon compatible), Ollama via `curl -fsSL https://ollama.com/install.sh | sh`.

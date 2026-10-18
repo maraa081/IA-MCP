@@ -82,8 +82,9 @@ comme demande. Tout est prevu pour en ajouter sans toucher au coeur du code.
 
 ## Demarrage
 
-Sur un clone frais, une seule commande suffit : elle verifie les prerequis,
-propose un modele, installe les environnements et demarre la pile.
+Sur un clone frais, une seule commande suffit : elle installe les dependances
+manquantes (apres confirmation), propose un modele, prepare les environnements et
+demarre la pile.
 
 ```bash
 ./install.sh
