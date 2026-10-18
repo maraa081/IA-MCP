@@ -56,6 +56,16 @@ start_background mcp-codedb "$LOG_DIR/mcp-codedb.log" \
 
 sleep 2
 
+# Le serveur codedb sert un index SQLite : sans lui, ses outils repondent mais
+# ne trouvent rien (« index du code est vide »). L'indexation est idempotente
+# (empreinte sha256 : les fichiers inchanges ne sont pas reecrits).
+echo "== Index de code (serveur codedb)"
+if "$PY" scripts/index_code.py; then
+  echo "  [ok]   index de code a jour"
+else
+  echo "  [note] indexation en echec : lancer 'python scripts/index_code.py'"
+fi
+
 echo "== Orchestrateur (conteneur, backend OpenAI d'Open WebUI)"
 # Plus de processus sur l'hote et plus de port publie : Open WebUI joint le
 # conteneur par son nom sur le reseau Docker (voir scripts/orchestrator.sh).

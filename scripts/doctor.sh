@@ -346,6 +346,31 @@ if [[ "$MCP_KO" -eq 1 ]]; then
   fi
 fi
 
+# L'index de code du serveur codedb : un port ouvert ne dit rien du contenu de
+# la base. Sans entree, les outils repondent mais ne trouvent rien (panne
+# silencieuse qui laisse croire a un index vide cote modele).
+INDEX_SQLITE="$PROJECT_ROOT/var/codedb.sqlite"
+if [[ -f "$INDEX_SQLITE" ]]; then
+  ENTREES_INDEX=$("$PY" -c "import sys; sys.path.insert(0, '$PROJECT_ROOT'); from mcp_servers.codedb.database import CodeDatabase; print(CodeDatabase('$INDEX_SQLITE').inventaire()['entrees'])" 2>/dev/null)
+  if [[ "${ENTREES_INDEX:-0}" -gt 0 ]]; then
+    ok "index de code : ${ENTREES_INDEX} entree(s)"
+  else
+    ko "index de code vide"
+    if reparer; then
+      reparation "indexation du code" "$PY" scripts/index_code.py
+    else
+      info "corriger avec : python scripts/index_code.py"
+    fi
+  fi
+else
+  ko "index de code absent ($INDEX_SQLITE)"
+  if reparer; then
+    reparation "indexation du code" "$PY" scripts/index_code.py
+  else
+    info "corriger avec : python scripts/index_code.py"
+  fi
+fi
+
 # --- 7. Orchestrateur --------------------------------------------------------
 titre "7. Orchestrateur (conteneur, port interne 8090)"
 
