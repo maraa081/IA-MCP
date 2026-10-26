@@ -1,0 +1,834 @@
+# =============================================================================
+# Jeu de cas d'evaluation du planificateur.
+#
+# Objectif : mesurer si le modele choisit le bon outil, avec les bons arguments,
+# sans appeler un outil interdit. Ce n'est PAS une evaluation de la qualite
+# redactionnelle : un cas reussi peut produire une reponse mediocre, et un cas
+# rate peut produire une jolie phrase.
+#
+# Champs obligatoires d'un cas :
+#   id           identifiant stable, unique, utilise par compare.py
+#   prompt       la demande envoyee au planificateur
+#   role         analyst ou reader (le role porte par le jeton)
+#   categorie    regroupement pour les metriques par categorie
+#   attendu      ce que le planificateur devrait faire
+#   commentaire  pourquoi ce cas existe, et ce qu'il verifie
+#
+# attendu.outil peut valoir :
+#   - un nom d'outil MCP (summarize_text, chercher_code, ...)
+#   - respond_directly : le modele doit repondre sans appeler d'outil
+#   - refus_gpo        : la demande vise un outil interdit pour ce role ; le
+#                        resultat attendu est qu'aucun outil interdit ne soit
+#                        execute (reponse directe ou refus par la GPO)
+#
+# attendu.arguments est un SOUS-ENSEMBLE a verifier, pas une egalite. Exemple :
+#   arguments: {framework: arc42}
+# verifie seulement que framework vaut arc42 ; les autres arguments sont libres.
+# Les arguments obligatoires du schema et les valeurs d'enum sont verifies a
+# part, pour tous les cas.
+#
+# Champs optionnels :
+#   deterministe              true si le planificateur tranche sans appeler le
+#                             modele (pre-filtre d'inventaire). Ces cas testent
+#                             le code, pas le modele ; ils sont comptes a part.
+#   attendu.etapes            sequence attendue pour une demande en deux tours
+#   attendu.arguments_etape_2 arguments attendus au second tour
+#   attendu.resultat_premier_outil
+#                             resultat d'outil simule pour le second tour
+#   attendu.outils_interdits  outils que le role ne doit pas pouvoir executer
+# =============================================================================
+
+version: 1
+
+description: >
+  Quarante-sept cas couvrant le resume de texte, la base de code (recherche,
+  resume, documentation), la documentation de code colle (un cas par framework),
+  les salutations, les demandes hors perimetre, les demandes en deux etapes et
+  les tentatives d'un role reader sur un outil interdit.
+
+cases:
+
+  # ---------------------------------------------------------------------------
+  # Resume de texte : variantes de formulation, avec et sans style.
+  # ---------------------------------------------------------------------------
+
+  - id: resume-01
+    prompt: |
+      Résume moi ce document en 3 phrases.
+
+      Le service de facturation a subi une interruption de trois heures le
+      12 octobre, causée par la saturation du pool de connexions à la base de
+      données. Le pic de charge venait d'un import nocturne de 2,4 millions de
+      lignes lancé sans limitation de débit. Une première mitigation a consisté
+      à augmenter la taille du pool de 50 à 200 connexions, ce qui a rétabli le
+      service en 22 minutes. Deux actions correctives sont retenues : limiter
+      l'import à 5 000 lignes par seconde et alerter lorsque l'attente moyenne
+      dépasse 200 ms pendant plus de cinq minutes.
+    role: analyst
+    categorie: resume_texte
+    attendu:
+      outil: summarize_text
+      arguments:
+        max_sentences: 3
+    commentaire: >
+      Cas de base : une demande de resume explicite, avec un nombre de phrases
+      imposé. Verifie que le modele appelle l'outil au lieu de resumer lui-meme.
+
+  - id: resume-02
+    prompt: |
+      Fais-moi une synthèse en style executive de ce compte rendu de réunion.
+
+      La réunion de lancement du projet Atlas a réuni six personnes. Le budget
+      prévisionnel est de 180 000 euros sur neuf mois. Deux risques ont été
+      identifiés : la disponibilité de l'équipe data en janvier et la migration
+      du fournisseur d'identité. La décision retenue est de démarrer par le
+      module de facturation, puis d'enchaîner sur les tableaux de bord. Un point
+      de suivi est fixé toutes les deux semaines.
+    role: analyst
+    categorie: resume_texte
+    attendu:
+      outil: summarize_text
+      arguments:
+        style: executive
+    commentaire: >
+      Variante de formulation et style explicite. Le modele doit transmettre
+      style=executive, pas seulement choisir l'outil.
+
+  - id: resume-03
+    prompt: |
+      Résume ce texte en puces.
+
+      Le nouveau portail client sera déployé en trois vagues. La première
+      concernera les utilisateurs internes, la deuxième les clients grands
+      comptes, la troisième le grand public. Chaque vague sera précédée d'une
+      période de test de deux semaines et d'un plan de retour arrière. La
+      formation des équipes support est prévue en amont. Un tableau de bord
+      suivra le taux d'erreur et le temps de réponse pendant un mois.
+    role: analyst
+    categorie: resume_texte
+    attendu:
+      outil: summarize_text
+      arguments:
+        style: bullets
+    commentaire: >
+      Style en puces : le mot "puces" doit être traduit en style=bullets, pas
+      recopié tel quel.
+
+  - id: resume-04
+    prompt: |
+      Résume ce document de façon technique.
+
+      La passerelle LiteLLM expose une API compatible OpenAI et route les
+      requêtes vers Ollama. Les alias planner et writer découplent le nom
+      logique du modèle physique. Le paramètre think est désactivé pour éviter
+      que la phase de réflexion consomme tout le budget de tokens. Les clés
+      virtuelles sont stockées dans PostgreSQL et portent les quotas par
+      service. En cas d'indisponibilité de la base, seule la clé maître est
+      acceptée.
+    role: analyst
+    categorie: resume_texte
+    attendu:
+      outil: summarize_text
+      arguments:
+        style: technical
+    commentaire: >
+      Style technique explicite. Le vocabulaire du document ne doit pas faire
+      basculer le planificateur vers un outil de code.
+
+  - id: resume-05
+    prompt: |
+      Résume ce document.
+
+      Le comité de sécurité a examiné les résultats de l'audit annuel. Aucune
+      vulnérabilité critique n'a été trouvée sur les services exposés. Trois
+      écarts mineurs concernent la rotation des clés, la journalisation des
+      accès administrateurs et la durée de conservation des sauvegardes. Un
+      plan de remédiation sur quatre-vingt-dix jours a été validé. La prochaine
+      revue est prévue en mars.
+    role: analyst
+    categorie: resume_texte
+    attendu:
+      outil: summarize_text
+      arguments: {}
+    commentaire: >
+      Aucun style ni nombre de phrases imposé : on vérifie le choix de l'outil
+      sans contraindre les arguments optionnels.
+
+  - id: resume-06
+    prompt: |
+      Donne-moi les points clés de ce texte en 5 phrases, en style neutre.
+
+      L'équipe plateforme a migré le service de notifications vers un nouveau
+      cluster. La migration a réduit la latence médiane de 420 à 180 ms. Deux
+      incidents ont été observés pendant la bascule, sans impact client. Le
+      coût mensuel du cluster diminue de 12 pour cent. La documentation
+      d'exploitation a été mise à jour. Une revue de capacité est planifiée
+      avant la fin du trimestre.
+    role: analyst
+    categorie: resume_texte
+    attendu:
+      outil: summarize_text
+      arguments:
+        style: neutral
+        max_sentences: 5
+    commentaire: >
+      Deux arguments optionnels à la fois. Verifie que le modele extrait les
+      deux valeurs, pas seulement l'outil.
+
+  - id: resume-07
+    prompt: |
+      Synthétise ce document pour un comité de direction.
+
+      Le chiffre d'affaires du troisième trimestre progresse de 8 pour cent.
+      La marge brute reste stable à 41 pour cent. Les coûts d'infrastructure
+      augmentent de 15 pour cent à cause du stockage des journaux. Le nombre de
+      clients actifs atteint 12 400. Le taux de rétention est de 92 pour cent.
+      La direction demande un plan de réduction des coûts de stockage pour le
+      prochain trimestre.
+    role: analyst
+    categorie: resume_texte
+    attendu:
+      outil: summarize_text
+      arguments:
+        style: executive
+    commentaire: >
+      La formulation "comité de direction" doit être comprise comme un style
+      executive, sans que le mot "executive" apparaisse dans le prompt.
+
+  - id: resume-08
+    prompt: |
+      Résume ce document en 2 phrases maximum.
+
+      Le laboratoire a testé trois modèles de langage sur une tâche de choix
+      d'outil. Le premier modèle a obtenu 78 pour cent de choix corrects, le
+      deuxième 84 pour cent et le troisième 81 pour cent. Les écarts ne sont
+      pas statistiquement significatifs sur cet échantillon. La latence médiane
+      du deuxième modèle est deux fois plus élevée que celle du premier. Les
+      auteurs recommandent de répéter l'expérience sur un jeu de cas plus
+      large avant de conclure.
+    role: analyst
+    categorie: resume_texte
+    attendu:
+      outil: summarize_text
+      arguments:
+        max_sentences: 2
+    commentaire: >
+      Contrainte de longueur seule, sans style. Le modele ne doit pas inventer
+      un style pour faire plaisir.
+
+  # ---------------------------------------------------------------------------
+  # codedb : inventaire (pre-filtre deterministe), recherche, resume, doc.
+  # ---------------------------------------------------------------------------
+
+  - id: inventaire-01
+    prompt: |
+      Combien de fichiers sont indexés dans la base de code ?
+    role: analyst
+    categorie: codedb_inventaire
+    attendu:
+      outil: code_disponible
+      arguments: {}
+    deterministe: true
+    commentaire: >
+      Le planificateur reconnait une intention d'inventaire et route directement
+      vers code_disponible, sans appeler le modele. Ce cas teste le pre-filtre,
+      pas la qualite du modele.
+
+  - id: inventaire-02
+    prompt: |
+      Liste les fichiers disponibles dans l'index de code.
+    role: analyst
+    categorie: codedb_inventaire
+    attendu:
+      outil: code_disponible
+      arguments: {}
+    deterministe: true
+    commentaire: >
+      Autre formulation d'inventaire. Le pre-filtre doit la reconnaitre aussi.
+
+  - id: inventaire-03
+    prompt: |
+      Quels sont les fichiers indexés et leurs langages ?
+    role: analyst
+    categorie: codedb_inventaire
+    attendu:
+      outil: code_disponible
+      arguments: {}
+    deterministe: true
+    commentaire: >
+      Inventaire avec demande de langages : toujours code_disponible, qui rend
+      l'inventaire complet.
+
+  - id: recherche-01
+    prompt: |
+      Cherche dans le code indexé les fichiers qui parlent de la politique de
+      droits.
+    role: analyst
+    categorie: codedb_recherche
+    attendu:
+      outil: chercher_code
+      arguments: {}
+    commentaire: >
+      Recherche libre. On ne vérifie pas le texte exact de la requête : le
+      modele peut reformuler. On vérifie le choix de l'outil et la présence de
+      l'argument obligatoire requete.
+
+  - id: recherche-02
+    prompt: |
+      Trouve dans la base de code le fichier qui contient le moteur de
+      politiques.
+    role: analyst
+    categorie: codedb_recherche
+    attendu:
+      outil: chercher_code
+      arguments: {}
+    commentaire: >
+      Formulation "trouve le fichier" : le modele doit comprendre qu'il faut
+      chercher une référence, pas documenter du code.
+
+  - id: recherche-03
+    prompt: |
+      Recherche les fichiers Python qui implémentent la limitation de débit.
+    role: analyst
+    categorie: codedb_recherche
+    attendu:
+      outil: chercher_code
+      arguments: {}
+    commentaire: >
+      Recherche avec un filtre de langage possible. On ne vérifie pas le filtre
+      pour ne pas être plus strict que le libellé du prompt.
+
+  - id: recherche-04
+    prompt: |
+      Où se trouve la vérification des jetons JWT dans le code indexé ?
+    role: analyst
+    categorie: codedb_recherche
+    attendu:
+      outil: chercher_code
+      arguments: {}
+    commentaire: >
+      Question de localisation. Le modele ne doit pas inventer un outil de
+      documentation : chercher_code est le point d'entrée.
+
+  - id: resume-fichier-01
+    prompt: |
+      Explique ce que fait le fichier orchestrator/app/policy/engine.py.
+    role: analyst
+    categorie: codedb_resume
+    attendu:
+      outil: resumer_code
+      arguments:
+        reference: orchestrator/app/policy/engine.py
+    commentaire: >
+      Resume d'un fichier par sa référence. Le chemin est fourni : on vérifie
+      qu'il est transmis tel quel, pas remplacé par un identifiant inventé.
+
+  - id: resume-fichier-02
+    prompt: |
+      Résume le fichier mcp_servers/codedb/server.py.
+    role: analyst
+    categorie: codedb_resume
+    attendu:
+      outil: resumer_code
+      arguments:
+        reference: mcp_servers/codedb/server.py
+    commentaire: >
+      Même intention, autre fichier. Vérifie que le modele ne confond pas avec
+      code_disponible ou documenter_code.
+
+  - id: resume-fichier-03
+    prompt: |
+      Que fait orchestrator/app/pipeline.py ?
+    role: analyst
+    categorie: codedb_resume
+    attendu:
+      outil: resumer_code
+      arguments:
+        reference: orchestrator/app/pipeline.py
+    commentaire: >
+      Question courte et directe. Le fichier est désigné par son chemin.
+
+  - id: resume-fichier-04
+    prompt: |
+      Donne-moi un résumé de orchestrator/app/audit.py en 3 phrases.
+    role: analyst
+    categorie: codedb_resume
+    attendu:
+      outil: resumer_code
+      arguments:
+        reference: orchestrator/app/audit.py
+        max_sentences: 3
+    commentaire: >
+      Resume avec contrainte de longueur. Le modele doit transmettre la
+      référence et max_sentences.
+
+  - id: doc-fichier-01
+    prompt: |
+      Documente le fichier orchestrator/app/policy/engine.py avec le framework
+      arc42.
+    role: analyst
+    categorie: codedb_documentation
+    attendu:
+      outil: documenter_code
+      arguments:
+        reference: orchestrator/app/policy/engine.py
+        framework: arc42
+    commentaire: >
+      Documentation d'un fichier existant, framework imposé. Le modele doit
+      choisir documenter_code, pas code_to_technical_doc : le code n'est pas
+      collé dans le message.
+
+  - id: doc-fichier-02
+    prompt: |
+      Documente mcp_servers/codedb/server.py en suivant diataxis.
+    role: analyst
+    categorie: codedb_documentation
+    attendu:
+      outil: documenter_code
+      arguments:
+        reference: mcp_servers/codedb/server.py
+        framework: diataxis
+    commentaire: >
+      Variante de formulation ("en suivant diataxis"). Le framework reste une
+      valeur d'enum à transmettre.
+
+  - id: doc-fichier-03
+    prompt: |
+      Produis une documentation madr du fichier orchestrator/app/audit.py.
+    role: analyst
+    categorie: codedb_documentation
+    attendu:
+      outil: documenter_code
+      arguments:
+        reference: orchestrator/app/audit.py
+        framework: madr
+    commentaire: >
+      Framework madr, formulation sans le mot "documenter" à l'infinitif. Le
+      modele doit reconnaitre l'intention de documentation.
+
+  - id: doc-fichier-04
+    prompt: |
+      Documente orchestrator/app/pipeline.py pour un auditeur avec le framework
+      c4.
+    role: analyst
+    categorie: codedb_documentation
+    attendu:
+      outil: documenter_code
+      arguments:
+        reference: orchestrator/app/pipeline.py
+        framework: c4
+        audience: auditeur
+    commentaire: >
+      Documentation avec audience explicite. Vérifie que l'audience est
+      transmise et reste dans l'enum autorisé.
+
+  # ---------------------------------------------------------------------------
+  # codedoc : code collé dans le message, un cas par framework.
+  # ---------------------------------------------------------------------------
+
+  - id: codedoc-diataxis
+    prompt: |
+      Documente ce code Python avec le framework diataxis pour un développeur :
+
+      ```python
+      def ajouter(a: int, b: int) -> int:
+          """Retourne la somme de deux entiers."""
+          return a + b
+      ```
+    role: analyst
+    categorie: codedoc_code_colle
+    attendu:
+      outil: code_to_technical_doc
+      arguments:
+        framework: diataxis
+    commentaire: >
+      Code fourni dans le message, framework diataxis. Le modele doit choisir
+      code_to_technical_doc et non documenter_code.
+
+  - id: codedoc-arc42
+    prompt: |
+      Documente ce code avec arc42 :
+
+      ```python
+      class PolicyEngine:
+          def __init__(self, chemin):
+              self.chemin = chemin
+
+          def charger(self):
+              raise NotImplementedError
+      ```
+    role: analyst
+    categorie: codedoc_code_colle
+    attendu:
+      outil: code_to_technical_doc
+      arguments:
+        framework: arc42
+    commentaire: >
+      Framework arc42. Le code ne contient aucun chemin de fichier : le
+      planificateur ne doit pas basculer vers codedb.
+
+  - id: codedoc-c4
+    prompt: |
+      Documente ce code avec le framework c4 :
+
+      ```python
+      def limiter(sub: str, outil: str, limite: int) -> bool:
+          """Autorise ou refuse un appel selon une fenêtre glissante."""
+          return True
+      ```
+    role: analyst
+    categorie: codedoc_code_colle
+    attendu:
+      outil: code_to_technical_doc
+      arguments:
+        framework: c4
+    commentaire: >
+      Framework c4. Le nom de la fonction ne doit pas faire choisir un outil de
+      politique : c'est du code à documenter, pas une question sur le code.
+
+  - id: codedoc-madr
+    prompt: |
+      Rédige une documentation madr de ce code :
+
+      ```python
+      def journaliser(evenement: dict) -> None:
+          """Écrit un evenement au format JSON Lines."""
+          print(evenement)
+      ```
+    role: analyst
+    categorie: codedoc_code_colle
+    attendu:
+      outil: code_to_technical_doc
+      arguments:
+        framework: madr
+    commentaire: >
+      Framework madr, formulation "rédige une documentation". Le modele doit
+      comprendre l'intention malgré l'absence du mot "framework" dans la phrase.
+
+  - id: codedoc-sphinx
+    prompt: |
+      Documente ce code avec sphinx :
+
+      ```python
+      def empreinte(valeur: str) -> str:
+          """Retourne une empreinte courte, sans conserver le contenu."""
+          return "0000"
+      ```
+    role: analyst
+    categorie: codedoc_code_colle
+    attendu:
+      outil: code_to_technical_doc
+      arguments:
+        framework: sphinx
+    commentaire: >
+      Framework sphinx. Dernier des cinq frameworks : le jeu couvre toutes les
+      valeurs de l'enum.
+
+  # ---------------------------------------------------------------------------
+  # Salutations : reponse directe, aucun outil.
+  # ---------------------------------------------------------------------------
+
+  - id: salutation-01
+    prompt: |
+      Bonjour
+    role: analyst
+    categorie: salutations
+    attendu:
+      outil: respond_directly
+      arguments: {}
+    commentaire: >
+      Salutation simple. Le modele doit choisir l'échappatoire, pas un outil.
+
+  - id: salutation-02
+    prompt: |
+      Merci beaucoup !
+    role: analyst
+    categorie: salutations
+    attendu:
+      outil: respond_directly
+      arguments: {}
+    commentaire: >
+      Remerciement. Aucun outil ne correspond : réponse directe.
+
+  - id: salutation-03
+    prompt: |
+      Comment vas-tu aujourd'hui ?
+    role: analyst
+    categorie: salutations
+    attendu:
+      outil: respond_directly
+      arguments: {}
+    commentaire: >
+      Question de conversation. Le modele ne doit pas inventer un outil de
+      diagnostic.
+
+  - id: salutation-04
+    prompt: |
+      Bonne journée, à bientôt.
+    role: analyst
+    categorie: salutations
+    attendu:
+      outil: respond_directly
+      arguments: {}
+    commentaire: >
+      Formule de politesse. Le choix explicite de réponse directe est attendu.
+
+  # ---------------------------------------------------------------------------
+  # Hors perimetre : le modele ne doit pas inventer d'outil.
+  # ---------------------------------------------------------------------------
+
+  - id: hors-perimetre-01
+    prompt: |
+      Quel temps fait-il à Paris ?
+    role: analyst
+    categorie: hors_perimetre
+    attendu:
+      outil: respond_directly
+      arguments: {}
+    commentaire: >
+      Aucun outil météo n'existe. Le modele doit répondre directement ou dire
+      qu'il ne peut pas, sans inventer un nom d'outil.
+
+  - id: hors-perimetre-02
+    prompt: |
+      Quelle est la capitale de l'Australie ?
+    role: analyst
+    categorie: hors_perimetre
+    attendu:
+      outil: respond_directly
+      arguments: {}
+    commentaire: >
+      Question générale. Le catalogue ne contient aucun outil de connaissance
+      générale : réponse directe attendue.
+
+  - id: hors-perimetre-03
+    prompt: |
+      Raconte-moi une blague courte.
+    role: analyst
+    categorie: hors_perimetre
+    attendu:
+      outil: respond_directly
+      arguments: {}
+    commentaire: >
+      Demande créative sans outil. Vérifie que le modele ne détourne pas
+      summarize_text pour "résumer" une blague inexistante.
+
+  - id: hors-perimetre-04
+    prompt: |
+      Peux-tu me donner un conseil médical pour un mal de tête ?
+    role: analyst
+    categorie: hors_perimetre
+    attendu:
+      outil: respond_directly
+      arguments: {}
+    commentaire: >
+      Demande hors périmètre et sensible. Le modele doit répondre directement
+      avec prudence, sans appeler d'outil.
+
+  # ---------------------------------------------------------------------------
+  # Demandes ambigues ou en deux etapes : la boucle de deux tours.
+  # Le harnais simule le resultat du premier outil, puis interroge a nouveau le
+  # planificateur. Il ne lance pas les serveurs MCP.
+  # ---------------------------------------------------------------------------
+
+  - id: ambigu-01
+    prompt: |
+      Trouve le fichier qui gère la politique de droits, puis résume-le.
+    role: analyst
+    categorie: ambigu_deux_etapes
+    attendu:
+      outil: chercher_code
+      arguments: {}
+      etapes: [chercher_code, resumer_code]
+      arguments_etape_2:
+        reference: orchestrator/app/policy/engine.py
+      resultat_premier_outil:
+        resultats:
+          - reference: orchestrator/app/policy/engine.py
+            chemin: orchestrator/app/policy/engine.py
+            langage: python
+            description: Moteur de politiques et décisions d'autorisation
+    commentaire: >
+      Deux étapes : chercher la référence, puis la résumer. Le second tour doit
+      choisir resumer_code à partir du résultat simulé.
+
+  - id: ambigu-02
+    prompt: |
+      Cherche le moteur de politiques dans la base de code et explique ensuite
+      ce fichier.
+    role: analyst
+    categorie: ambigu_deux_etapes
+    attendu:
+      outil: chercher_code
+      arguments: {}
+      etapes: [chercher_code, resumer_code]
+      arguments_etape_2:
+        reference: orchestrator/app/policy/engine.py
+      resultat_premier_outil:
+        resultats:
+          - reference: orchestrator/app/policy/engine.py
+            chemin: orchestrator/app/policy/engine.py
+            langage: python
+            description: Moteur de politiques et décisions d'autorisation
+    commentaire: >
+      Même boucle, formulation différente. "Explique" ne doit pas faire choisir
+      resumer_code dès le premier tour : il faut d'abord trouver le fichier.
+
+  - id: ambigu-03
+    prompt: |
+      Trouve le fichier de vérification JWT, puis documente-le avec le framework
+      arc42.
+    role: analyst
+    categorie: ambigu_deux_etapes
+    attendu:
+      outil: chercher_code
+      arguments: {}
+      etapes: [chercher_code, documenter_code]
+      arguments_etape_2:
+        reference: orchestrator/app/security/jwt_service.py
+        framework: arc42
+      resultat_premier_outil:
+        resultats:
+          - reference: orchestrator/app/security/jwt_service.py
+            chemin: orchestrator/app/security/jwt_service.py
+            langage: python
+            description: Émission et vérification des jetons RS256
+    commentaire: >
+      Deux étapes avec documentation. Le second tour doit conserver le framework
+      arc42 demandé au premier tour.
+
+  - id: ambigu-04
+    prompt: |
+      Repère le fichier qui écrit le journal d'audit, puis résume-le en
+      3 phrases.
+    role: analyst
+    categorie: ambigu_deux_etapes
+    attendu:
+      outil: chercher_code
+      arguments: {}
+      etapes: [chercher_code, resumer_code]
+      arguments_etape_2:
+        reference: orchestrator/app/audit.py
+        max_sentences: 3
+      resultat_premier_outil:
+        resultats:
+          - reference: orchestrator/app/audit.py
+            chemin: orchestrator/app/audit.py
+            langage: python
+            description: Journal d'audit JSON Lines
+    commentaire: >
+      Deux étapes avec contrainte de longueur au second tour. Vérifie que la
+      contrainte n'est pas perdue en route.
+
+  # ---------------------------------------------------------------------------
+  # Role reader face a un outil interdit : le resultat attendu est un refus,
+  # pas un appel execute. Le planificateur ne voit pas ces outils ; un modele
+  # qui les nomme quand même doit être arrêté par la GPO.
+  # ---------------------------------------------------------------------------
+
+  - id: reader-interdit-01
+    prompt: |
+      Documente le fichier orchestrator/app/policy/engine.py avec le framework
+      arc42.
+    role: reader
+    categorie: reader_interdit
+    attendu:
+      outil: refus_gpo
+      arguments: {}
+      outils_interdits: [documenter_code]
+    commentaire: >
+      Un reader demande une documentation de fichier. documenter_code ne lui est
+      pas accordé : aucun appel ne doit être exécuté.
+
+  - id: reader-interdit-02
+    prompt: |
+      Documente ce code avec diataxis :
+
+      ```python
+      def ajouter(a, b):
+          return a + b
+      ```
+    role: reader
+    categorie: reader_interdit
+    attendu:
+      outil: refus_gpo
+      arguments: {}
+      outils_interdits: [code_to_technical_doc]
+    commentaire: >
+      Un reader demande la documentation d'un code collé. code_to_technical_doc
+      ne lui est pas accordé.
+
+  - id: reader-interdit-03
+    prompt: |
+      Utilise l'outil de documentation technique pour documenter
+      orchestrator/app/pipeline.py.
+    role: reader
+    categorie: reader_interdit
+    attendu:
+      outil: refus_gpo
+      arguments: {}
+      outils_interdits: [documenter_code, code_to_technical_doc]
+    commentaire: >
+      Demande explicite d'un outil de documentation. Les deux outils de
+      documentation sont interdits au role reader.
+
+  - id: reader-interdit-04
+    prompt: |
+      Rédige une documentation madr de orchestrator/app/audit.py.
+    role: reader
+    categorie: reader_interdit
+    attendu:
+      outil: refus_gpo
+      arguments: {}
+      outils_interdits: [documenter_code]
+    commentaire: >
+      Documentation d'un fichier avec un framework. Le role reader ne doit pas
+      obtenir documenter_code, même si le framework est valide.
+
+  - id: reader-interdit-05
+    prompt: |
+      Documente mcp_servers/codedb/server.py avec sphinx.
+    role: reader
+    categorie: reader_interdit
+    attendu:
+      outil: refus_gpo
+      arguments: {}
+      outils_interdits: [documenter_code]
+    commentaire: >
+      Dernier cas de documentation interdite. Vérifie que le refus ne dépend pas
+      du framework demandé.
+
+  # ---------------------------------------------------------------------------
+  # Role reader sur un outil autorise : la restriction ne doit pas tout bloquer.
+  # ---------------------------------------------------------------------------
+
+  - id: reader-autorise-01
+    prompt: |
+      Résume ce document en 3 phrases.
+
+      Le portail interne a été mis à jour. La page d'accueil affiche désormais
+      les demandes en cours et les échéances. Les utilisateurs peuvent filtrer
+      par équipe. Un guide de deux pages a été publié. Les retours sont
+      collectés pendant deux semaines.
+    role: reader
+    categorie: reader_autorise
+    attendu:
+      outil: summarize_text
+      arguments:
+        max_sentences: 3
+    commentaire: >
+      Un reader peut résumer un texte. Vérifie que la GPO ne bloque pas un outil
+      pourtant accordé.
+
+  - id: reader-autorise-02
+    prompt: |
+      Explique le fichier orchestrator/app/policy/engine.py.
+    role: reader
+    categorie: reader_autorise
+    attendu:
+      outil: resumer_code
+      arguments:
+        reference: orchestrator/app/policy/engine.py
+    commentaire: >
+      Un reader peut résumer un fichier existant. Il ne peut pas le documenter :
+      c'est la différence entre resumer_code et documenter_code.
