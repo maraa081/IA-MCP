@@ -68,6 +68,10 @@ class ToolCallTrace:
     arguments: dict[str, Any]
     decision: str            # allowed | denied | error
     reason: str | None = None
+    # Regle de la GPO (ou du garde-fou) qui a produit la decision. Elle est
+    # journalisee et exposee dans la reponse : un refus sans regle est
+    # impossible a diagnostiquer, et impossible a agreger en metriques.
+    rule: str | None = None
     duration_ms: int | None = None
     output_preview: str | None = None
 
@@ -77,6 +81,7 @@ class ToolCallTrace:
             "arguments": self.arguments,
             "decision": self.decision,
             "reason": self.reason,
+            "rule": self.rule,
             "duration_ms": self.duration_ms,
             "output_preview": self.output_preview,
         }
@@ -182,9 +187,15 @@ class ChatPipeline:
         traces: list[ToolCallTrace] = []
         results: list[dict[str, Any]] = []
         denials: list[str] = []
+        denial_details: list[dict[str, Any]] = []
         errors: list[str] = []
+        error_details: list[dict[str, Any]] = []
         proposed: list[str] = []
         executed = 0
+        # Compteur par outil. Le quota de la GPO est un quota PAR OUTIL : passer
+        # le total global ferait refuser documenter_code apres un chercher_code,
+        # alors que les deux outils ont chacun leur propre limite.
+        executed_by_tool: dict[str, int] = {}
         rounds = 0
         planner_mode = "none"
         answer = ""
@@ -211,12 +222,16 @@ class ChatPipeline:
                     user=user,
                     descriptor=descriptor,
                     executed=executed,
+                    calls_for_tool=executed_by_tool.get(call.tool, 0),
                     max_calls=max_calls,
                 )
                 traces.append(trace)
 
                 if trace.decision == "allowed":
                     executed += 1
+                    executed_by_tool[call.tool] = (
+                        executed_by_tool.get(call.tool, 0) + 1
+                    )
                     if payload is not None:
                         results.append(
                             {
@@ -227,8 +242,22 @@ class ChatPipeline:
                         )
                 elif trace.decision == "denied":
                     denials.append(f"{call.tool} : {trace.reason}")
+                    denial_details.append(
+                        {
+                            "tool": call.tool,
+                            "reason": trace.reason,
+                            "rule": trace.rule,
+                        }
+                    )
                 else:
                     errors.append(f"{call.tool} : {trace.reason}")
+                    error_details.append(
+                        {
+                            "tool": call.tool,
+                            "reason": trace.reason,
+                            "rule": trace.rule,
+                        }
+                    )
 
                 conversation.append(tool_result_message(call, texte))
 
@@ -278,7 +307,9 @@ class ChatPipeline:
                 "tools_proposed": proposed,
                 "tools_executed": [result["tool"] for result in results],
                 "denials": denials,
+                "denial_details": denial_details,
                 "errors": errors,
+                "error_details": error_details,
                 "prompt_fingerprint": AuditLogger.fingerprint(message),
                 "prompt_chars": len(message),
                 "model_used": model_used,
@@ -307,6 +338,7 @@ class ChatPipeline:
         user: AuthenticatedUser,
         descriptor: ToolDescriptor | None,
         executed: int,
+        calls_for_tool: int,
         max_calls: int,
     ) -> tuple[str, ToolCallTrace, dict[str, Any] | None]:
         """Autorise puis execute un appel.
@@ -320,7 +352,11 @@ class ChatPipeline:
             return (
                 reason,
                 ToolCallTrace(
-                    tool=call.tool, arguments=call.arguments, decision="denied", reason=reason
+                    tool=call.tool,
+                    arguments=call.arguments,
+                    decision="denied",
+                    reason=reason,
+                    rule="gpo.tool_not_granted",
                 ),
                 None,
             )
@@ -334,7 +370,11 @@ class ChatPipeline:
             return (
                 reason,
                 ToolCallTrace(
-                    tool=call.tool, arguments=arguments, decision="denied", reason=reason
+                    tool=call.tool,
+                    arguments=arguments,
+                    decision="denied",
+                    reason=reason,
+                    rule="limits.max_tool_calls_per_request",
                 ),
                 None,
             )
@@ -344,7 +384,7 @@ class ChatPipeline:
             roles=user.roles,
             tool=call.tool,
             arguments=arguments,
-            calls_so_far=executed,
+            calls_so_far=calls_for_tool,
         )
         if not decision.allowed:
             return (
@@ -354,6 +394,7 @@ class ChatPipeline:
                     arguments=arguments,
                     decision="denied",
                     reason=decision.reason,
+                    rule=decision.rule,
                 ),
                 None,
             )
@@ -376,6 +417,7 @@ class ChatPipeline:
                     arguments=arguments,
                     decision="error",
                     reason=reason,
+                    rule="tool.execution_error",
                     duration_ms=result.duration_ms,
                 ),
                 None,
@@ -390,6 +432,7 @@ class ChatPipeline:
                 arguments=arguments,
                 decision="allowed",
                 reason="execute",
+                rule=decision.rule,
                 duration_ms=result.duration_ms,
                 output_preview=result.preview(MAX_PREVIEW_CHARS),
             ),

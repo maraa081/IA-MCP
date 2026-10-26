@@ -139,6 +139,8 @@ def _trace_raisonnement(resultat: PipelineOutcome) -> str | None:
         ligne = f"- {trace.tool}({arguments}) -> {statut} ({duree})"
         if trace.decision != "allowed" and trace.reason:
             ligne += f" : {trace.reason}"
+        if trace.decision != "allowed" and trace.rule:
+            ligne += f" [{trace.rule}]"
         lignes.append(ligne)
     return "\n".join(lignes)
 

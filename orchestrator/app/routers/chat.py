@@ -66,6 +66,7 @@ async def chat(
                 arguments=trace.arguments,
                 decision=trace.decision,
                 reason=trace.reason,
+                rule=trace.rule,
                 duration_ms=trace.duration_ms,
                 output_preview=trace.output_preview,
             )

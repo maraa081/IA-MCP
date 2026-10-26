@@ -438,6 +438,32 @@ async def test_explication_d_echec_quand_le_modele_ne_conclut_pas(settings: Sett
     assert "Appels en erreur" in outcome.answer
 
 
+async def test_les_refus_d_outil_portent_leur_regle(settings: Settings) -> None:
+    """Un refus doit etre auditable avec sa regle, pas seulement sa raison."""
+    gateway = FakeGateway(
+        replies=[
+            planning_reply("code_to_technical_doc", {"code": "print(1)", "framework": "arc42"}),
+            GatewayReply(model="planner", content=""),
+        ]
+    )
+    mcp = FakeMcpClient(CAMELOGUE)
+    pipeline = await build_pipeline(settings, gateway, mcp)
+
+    outcome = await pipeline.run(user=user("lecteur", ["reader"]), message="Documente ce code")
+
+    assert outcome.tool_trace[0].decision == "denied"
+    assert outcome.tool_trace[0].rule == "gpo.tool_not_granted"
+    event = json.loads(settings.audit_log_path.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert event["denial_details"] == [
+        {
+            "tool": "code_to_technical_doc",
+            "reason": outcome.tool_trace[0].reason,
+            "rule": "gpo.tool_not_granted",
+        }
+    ]
+    assert event["error_details"] == []
+
+
 async def test_services_startup_expose_les_services(settings: Settings) -> None:
     """Verifie le cablage reel du conteneur.
 

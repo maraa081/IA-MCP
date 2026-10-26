@@ -61,6 +61,7 @@ class ToolCallTrace(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     decision: Literal["allowed", "denied", "error"]
     reason: str | None = None
+    rule: str | None = None
     duration_ms: int | None = None
     output_preview: str | None = None
 
