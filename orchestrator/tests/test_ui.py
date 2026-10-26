@@ -20,6 +20,7 @@ from orchestrator.app.main import create_app
 def settings(tmp_path: Path) -> Settings:
     """Reglages isoles, sans dependance a un service qui tourne sur la machine."""
     return Settings(
+        planner_mode="auto",
         policies_path=PROJECT_ROOT / "config" / "policies.yaml",
         audit_log_path=tmp_path / "audit.jsonl",
         revocation_path=tmp_path / "revoked.json",

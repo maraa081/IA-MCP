@@ -26,6 +26,9 @@ export PLANNER_MODEL="${PLANNER_MODEL:-planner}"
 export WRITER_MODEL="${WRITER_MODEL:-writer}"
 export MCP_SUMMARIZER_URL="${MCP_SUMMARIZER_URL:-http://127.0.0.1:9101/mcp}"
 export MCP_CODEDOC_URL="${MCP_CODEDOC_URL:-http://127.0.0.1:9102/mcp}"
+export LAYA_PORT="${LAYA_PORT:-9104}"
+export LAYA_URL="${LAYA_URL:-http://127.0.0.1:9104}"
+export LAYA_MODEL="${LAYA_MODEL:-convaiinnovations/laya-multilingual}"
 
 # Chemins de travail.
 export VENV="$PROJECT_ROOT/.venv"

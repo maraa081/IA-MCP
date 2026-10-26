@@ -71,6 +71,7 @@ demarrer() {
       -e MCP_SUMMARIZER_URL="http://$ip:9101/mcp" \
       -e MCP_CODEDOC_URL="http://$ip:9102/mcp" \
       -e MCP_CODEDB_URL="http://$ip:9103/mcp" \
+      -e LAYA_URL="http://$ip:${LAYA_PORT:-9104}" \
       -e ORCHESTRATOR_HOST=0.0.0.0 \
       -e ORCHESTRATOR_PORT=8090 \
       -e POLICIES_PATH=/app/config/policies.yaml \

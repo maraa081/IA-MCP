@@ -11,6 +11,7 @@ stop_background mcpo
 stop_background mcp-codedb
 stop_background mcp-codedoc
 stop_background mcp-summarizer
+stop_background laya
 stop_background gateway
 
 if [[ "${1:-}" == "--all" ]]; then

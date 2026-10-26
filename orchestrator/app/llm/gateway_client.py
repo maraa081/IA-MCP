@@ -71,7 +71,9 @@ class GatewayClient:
         temperature: float = 0.2,
         max_tokens: int = 900,
         response_format: dict[str, Any] | None = None,
-        tool_choice: str | None = None,
+        # "auto", "required", ou un objet {"type": "function", "function": {...}}
+        # pour forcer un outil precis (mode Laya : extraction des arguments).
+        tool_choice: str | dict[str, Any] | None = None,
     ) -> GatewayReply:
         """Envoie une conversation et retourne la reponse normalisee."""
         payload: dict[str, Any] = {

@@ -27,7 +27,7 @@ from orchestrator.app.container import Services
 from orchestrator.app.llm import GatewayReply, Synthesizer, ToolCallRequest, ToolPlanner
 from orchestrator.app.llm.planner import RESPOND_DIRECTLY_TOOL
 from orchestrator.app.mcp import ToolCallResult, ToolRegistry
-from orchestrator.app.pipeline import ChatPipeline, PolicyViolation
+from orchestrator.app.pipeline import ChatPipeline, PolicyViolation, _sanitize_arguments
 from orchestrator.app.policy import PolicyEngine, RateLimiter
 from orchestrator.app.security import AuthenticatedUser
 
@@ -116,6 +116,33 @@ class FakeMcpClient:
         )
 
 
+def test_les_arguments_none_sont_retires() -> None:
+    """Le modele rend parfois "None" au lieu d'omettre un argument optionnel."""
+    schema = {
+        "properties": {
+            "text": {"type": "string"},
+            "max_sentences": {"type": "integer"},
+        }
+    }
+
+    assert _sanitize_arguments(
+        {"text": "x", "max_sentences": "None"}, schema
+    ) == {"text": "x"}
+
+
+def test_les_entiers_textuels_sont_convertis() -> None:
+    schema = {
+        "properties": {
+            "max_sentences": {"type": "integer"},
+            "limite": {"type": "integer"},
+        }
+    }
+
+    assert _sanitize_arguments(
+        {"max_sentences": "5", "limite": "10"}, schema
+    ) == {"max_sentences": 5, "limite": 10}
+
+
 def tool_schema(name: str, description: str = "outil de test") -> dict[str, Any]:
     return {
         "name": name,
@@ -138,6 +165,7 @@ def settings(tmp_path: Path) -> Settings:
     policy_path = tmp_path / "policies.yaml"
     policy_path.write_text(POLICY, encoding="utf-8")
     return Settings(
+        planner_mode="auto",
         policies_path=policy_path,
         audit_log_path=tmp_path / "audit.jsonl",
         revocation_path=tmp_path / "revoked.json",

@@ -7,6 +7,7 @@ usages specialises :
 """
 
 from .gateway_client import GatewayClient, GatewayReply, GatewayUnavailable, ToolCallRequest
+from .laya_client import LayaClient, LayaDecision, LayaUnavailable
 from .planner import (
     RESPOND_DIRECTLY_TOOL,
     Plan,
@@ -22,6 +23,9 @@ __all__ = [
     "GatewayReply",
     "GatewayUnavailable",
     "ToolCallRequest",
+    "LayaClient",
+    "LayaDecision",
+    "LayaUnavailable",
     "Plan",
     "PlannedCall",
     "ToolPlanner",

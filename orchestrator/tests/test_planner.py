@@ -35,6 +35,7 @@ class RecordingGateway:
 @pytest.fixture()
 def settings(tmp_path: Path) -> Settings:
     return Settings(
+        planner_mode="auto",
         policies_path=tmp_path / "policies.yaml",
         audit_log_path=tmp_path / "audit.jsonl",
         revocation_path=tmp_path / "revoked.json",

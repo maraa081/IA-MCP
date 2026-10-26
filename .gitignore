@@ -14,3 +14,6 @@ config/revoked_tokens.json
 var/
 *.log
 .pytest_cache/
+
+# Environnement Laya (sidecar de decision)
+.venv-laya/

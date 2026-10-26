@@ -66,6 +66,11 @@ else
   echo "  [note] indexation en echec : lancer 'python scripts/index_code.py'"
 fi
 
+if [[ "${PLANNER_MODE:-auto}" == "laya" ]]; then
+  echo "== Modele de decision Laya (planificateur)"
+  "$PROJECT_ROOT/scripts/laya.sh" up || echo "  [note] Laya indisponible : repli sur qwen"
+fi
+
 echo "== Orchestrateur (conteneur, backend OpenAI d'Open WebUI)"
 # Plus de processus sur l'hote et plus de port publie : Open WebUI joint le
 # conteneur par son nom sur le reseau Docker (voir scripts/orchestrator.sh).

@@ -27,6 +27,7 @@ def settings(tmp_path: Path) -> Settings:
     keys_dir = tmp_path / "keys"
     generate_keypair(keys_dir / "private.pem", keys_dir / "public.pem")
     return Settings(
+        planner_mode="auto",
         keys_dir=keys_dir,
         revocation_path=tmp_path / "revoked.json",
         policies_path=tmp_path / "policies.yaml",

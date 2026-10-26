@@ -49,7 +49,9 @@ class Settings(BaseSettings):
     writer_model: str = "writer"
     # native = function calling ; json = le modele repond en JSON ; auto = essaie
     # native puis retombe sur json si le modele ne produit pas d'appel d'outil.
-    planner_mode: Literal["native", "json", "auto"] = "auto"
+    # laya = un modele de decision choisit l'outil, le modele de langage extrait
+    # ensuite les arguments (voir llm/planner.py et llm/laya_client.py).
+    planner_mode: Literal["native", "json", "auto", "laya"] = "auto"
     # required : le modele doit produire un appel d'outil, y compris l'echappatoire
     # 'respond_directly'. Rend le choix deterministe. Mesure sur la pile du labo :
     # c'est ce reglage qui fait que le modele appelle l'outil de resume au lieu de
@@ -65,6 +67,20 @@ class Settings(BaseSettings):
     ollama_disable_thinking: bool = True
     llm_timeout_seconds: float = 300.0
     synthesis_enabled: bool = True
+
+    # --- Modele de decision Laya (planificateur) -----------------------------
+    # Sidecar local lance par scripts/laya.sh. Laya choisit l'outil ; le modele
+    # de langage extrait les arguments. Si le sidecar est indisponible, le
+    # planificateur retombe sur le mode `auto` : aucune panne utilisateur.
+    laya_url: str = "http://127.0.0.1:9104"
+    laya_model: str = "convaiinnovations/laya-multilingual"
+    laya_timeout_seconds: float = 60.0
+    # La confiance de Laya mesure la concentration, pas la justesse. On garde
+    # un plancher tres bas et on prefere la marge entre les deux premieres
+    # options : une quasi-egalite doit renvoyer la decision au modele de langage.
+    laya_min_confidence: float = 0.01
+    laya_min_margin: float = 0.02
+    laya_max_state_chars: int = 6000
 
     # --- JWT -----------------------------------------------------------------
     issuer: str = "mcp-orchestrator-lab"

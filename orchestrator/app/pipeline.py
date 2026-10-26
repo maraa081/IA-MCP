@@ -19,6 +19,7 @@ n'importe quoi ?" : il peut le dire, cela ne change rien aux droits.
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -231,13 +232,18 @@ class ChatPipeline:
 
                 conversation.append(tool_result_message(call, texte))
 
-            # Sortie anticipee : l'outil a deja rendu un texte redige et la
-            # synthese est desactivee. Rappeler le modele n'apporterait rien.
-            if (
-                len(results) == 1
-                and not want_synthesis
-                and _contient_un_texte(results[0]["payload"])
-            ):
+            # Inventaire : le resultat contient deja la liste des fichiers.
+            # Un second tour risquerait un nouvel appel (refuse par le quota
+            # 1/1 de la GPO) sans rien apporter. On s'arrete apres le premier
+            # appel, que la synthese soit activee ou non.
+            if len(results) == 1 and results[0]["tool"] == "code_disponible":
+                break
+
+            # Sortie anticipee : l'outil a deja rendu un texte redige. Un
+            # second tour de planification risquerait un nouvel appel (refuse
+            # par le quota 1/1) sans rien apporter. Si la synthese est activee,
+            # elle partira de ce resultat unique.
+            if len(results) == 1 and _contient_un_texte(results[0]["payload"]):
                 break
 
         # --- Etape 5 : reponse finale ----------------------------------------
@@ -319,12 +325,16 @@ class ChatPipeline:
                 None,
             )
 
+        # Nettoie les arguments du modele avant la GPO et l'appel MCP :
+        # "None" en chaine de caracteres est traite comme un argument absent.
+        arguments = _sanitize_arguments(call.arguments, descriptor.input_schema)
+
         if executed >= max_calls:
             reason = f"quota global d'appels atteint ({max_calls} par requete)"
             return (
                 reason,
                 ToolCallTrace(
-                    tool=call.tool, arguments=call.arguments, decision="denied", reason=reason
+                    tool=call.tool, arguments=arguments, decision="denied", reason=reason
                 ),
                 None,
             )
@@ -333,7 +343,7 @@ class ChatPipeline:
             sub=user.sub,
             roles=user.roles,
             tool=call.tool,
-            arguments=call.arguments,
+            arguments=arguments,
             calls_so_far=executed,
         )
         if not decision.allowed:
@@ -341,7 +351,7 @@ class ChatPipeline:
                 decision.reason,
                 ToolCallTrace(
                     tool=call.tool,
-                    arguments=call.arguments,
+                    arguments=arguments,
                     decision="denied",
                     reason=decision.reason,
                 ),
@@ -352,7 +362,7 @@ class ChatPipeline:
             server=descriptor.server,
             url=self._settings.mcp_servers[descriptor.server],
             tool=call.tool,
-            arguments=call.arguments,
+            arguments=arguments,
         )
 
         if not result.ok:
@@ -363,7 +373,7 @@ class ChatPipeline:
                 f"erreur : {reason}",
                 ToolCallTrace(
                     tool=call.tool,
-                    arguments=call.arguments,
+                    arguments=arguments,
                     decision="error",
                     reason=reason,
                     duration_ms=result.duration_ms,
@@ -377,7 +387,7 @@ class ChatPipeline:
             texte,
             ToolCallTrace(
                 tool=call.tool,
-                arguments=call.arguments,
+                arguments=arguments,
                 decision="allowed",
                 reason="execute",
                 duration_ms=result.duration_ms,
@@ -454,6 +464,56 @@ def _explain_failure(denials: list[str], errors: list[str]) -> str:
         )
 
     return "La demande n'a pas pu etre traitee.\n\n" + "\n\n".join(parts)
+
+
+def _sanitize_arguments(
+    arguments: dict[str, Any], schema: dict[str, Any]
+) -> dict[str, Any]:
+    """Nettoie les arguments d'un appel avant la GPO et le serveur MCP.
+
+    Les petits modeles rendent parfois la chaine "None" au lieu d'omettre un
+    argument optionnel. L'outil refuse alors l'appel (validation Pydantic) et
+    l'utilisateur voit une erreur au lieu du resultat. On supprime ces valeurs,
+    puis on convertit les types simples d'apres le schema de l'outil.
+    """
+    properties = (schema or {}).get("properties") or {}
+    cleaned: dict[str, Any] = {}
+
+    for key, value in (arguments or {}).items():
+        if value is None:
+            continue
+
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.lower() in {"none", "null", "nil", "undefined"}:
+                continue
+            expected = (properties.get(key) or {}).get("type")
+            if expected == "integer" and re.fullmatch(r"-?\d+", stripped):
+                cleaned[key] = int(stripped)
+                continue
+            if expected == "number":
+                try:
+                    cleaned[key] = float(stripped)
+                    continue
+                except ValueError:
+                    pass
+            if expected == "boolean" and stripped.lower() in {"true", "false"}:
+                cleaned[key] = stripped.lower() == "true"
+                continue
+            cleaned[key] = value
+            continue
+
+        if (
+            isinstance(value, float)
+            and (properties.get(key) or {}).get("type") == "integer"
+            and value.is_integer()
+        ):
+            cleaned[key] = int(value)
+            continue
+
+        cleaned[key] = value
+
+    return cleaned
 
 
 def _contient_un_texte(payload: dict[str, Any]) -> bool:
