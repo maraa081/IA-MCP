@@ -99,6 +99,10 @@ class PipelineOutcome:
     denials: list[str] = field(default_factory=list)
     planner_mode: str = "none"
     latency_ms: int = 0
+    # "stop" = reponse complete ; "length" = budget de tokens epuise, donc
+    # texte coupe. Open WebUI peut ainsi l'afficher au lieu de laisser croire
+    # que le document s'arrete la.
+    finish_reason: str = "stop"
 
 
 class ChatPipeline:
@@ -134,8 +138,12 @@ class ChatPipeline:
         synthesize: bool | None = None,
         history: list[dict[str, Any]] | None = None,
         allowed_tools: set[str] | None = None,
+        max_tokens: int | None = None,
     ) -> PipelineOutcome:
         """Traite un message et retourne la reponse complete.
+
+        `max_tokens` : budget de la reponse finale demande par le client
+        (Open WebUI). None = valeur de la configuration.
 
         `history` : tours precedents de la conversation (role/contenu), pour
         qu'Open WebUI puisse enchainer plusieurs messages. Les droits ne sont
@@ -279,10 +287,11 @@ class ChatPipeline:
         if answer:
             # Le modele a conclu lui-meme, apres avoir vu les resultats.
             model_used = self._settings.planner_model
+            finish_reason = "stop"
         else:
             # Il n'a rien produit d'exploitable : on compose a partir des
             # resultats obtenus, ou on explique l'echec.
-            answer, model_used = await self._finalize(
+            answer, model_used, finish_reason = await self._finalize(
                 user_message=message,
                 plan_content="",
                 results=results,
@@ -290,6 +299,7 @@ class ChatPipeline:
                 errors=errors,
                 model=model,
                 synthesize=synthesize,
+                max_tokens=max_tokens,
             )
 
         # --- Etape 6 : audit -------------------------------------------------
@@ -327,6 +337,7 @@ class ChatPipeline:
             denials=denials,
             planner_mode=planner_mode,
             latency_ms=latency_ms,
+            finish_reason=finish_reason,
         )
 
     # --- Execution d'un appel d'outil ----------------------------------------
@@ -451,8 +462,12 @@ class ChatPipeline:
         errors: list[str],
         model: str | None,
         synthesize: bool | None,
-    ) -> tuple[str, str]:
-        """Choisit la meilleure reponse disponible, sans jamais en inventer."""
+        max_tokens: int | None = None,
+    ) -> tuple[str, str, str]:
+        """Choisit la meilleure reponse disponible, sans jamais en inventer.
+
+        Retourne (texte, modele, finish_reason).
+        """
         want_synthesis = (
             self._settings.synthesis_enabled if synthesize is None else synthesize
         )
@@ -461,13 +476,14 @@ class ChatPipeline:
         # directement, soit les appels ont ete refuses ou ont echoue.
         if not results:
             if plan_content:
-                return plan_content, self._settings.planner_model
+                return plan_content, self._settings.planner_model, "stop"
             if denials or errors:
-                return _explain_failure(denials, errors), "policy"
+                return _explain_failure(denials, errors), "policy", "stop"
             return (
                 "Aucun outil n'a pu etre appele et le modele n'a pas produit de "
                 "reponse exploitable.",
                 "none",
+                "stop",
             )
 
         # Cas 2 : un seul outil a reussi et la synthese est desactivee. Les deux
@@ -475,17 +491,22 @@ class ChatPipeline:
         # gaspillage d'appel de modele.
         if len(results) == 1 and not want_synthesis and not denials and not errors:
             payload = results[0]["payload"]
-            return _render_payload(payload), str(payload.get("model", self._settings.writer_model))
+            return (
+                _render_payload(payload),
+                str(payload.get("model", self._settings.writer_model)),
+                "stop",
+            )
 
         # Cas 3 : synthese par le modele redacteur.
-        answer = await self._synthesizer.compose(
+        answer, finish_reason = await self._synthesizer.compose(
             user_message=user_message,
             tool_results=results,
             denials=denials,
             errors=errors,
             model=model,
+            max_tokens=max_tokens,
         )
-        return answer, model or self._settings.writer_model
+        return answer, model or self._settings.writer_model, finish_reason
 
 
 def _explain_failure(denials: list[str], errors: list[str]) -> str:

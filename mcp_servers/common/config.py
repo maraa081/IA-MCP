@@ -50,7 +50,7 @@ def load_settings(default_model: str = "writer") -> ServerSettings:
         gateway_url=_env("GATEWAY_URL", "http://127.0.0.1:4000"),
         gateway_api_key=cle_mcp or cle_generale,
         writer_model=_env("WRITER_MODEL", default_model),
-        request_timeout_seconds=float(_env("TOOL_TIMEOUT_SECONDS", "300")),
+        request_timeout_seconds=float(_env("TOOL_TIMEOUT_SECONDS", "900")),
         disable_thinking=_env("OLLAMA_DISABLE_THINKING", "true").lower()
         in ("1", "true", "yes"),
     )

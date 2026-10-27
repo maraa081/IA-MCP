@@ -42,7 +42,7 @@ model_list:
 litellm_settings:
   # On n'expose pas les erreurs brutes des moteurs vers les clients.
   drop_params: true
-  request_timeout: 300
+  request_timeout: 900
   num_retries: 1
 
 general_settings:

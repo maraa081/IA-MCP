@@ -44,8 +44,9 @@ LANGAGES = {
 
 # Repertoires jamais indexes.
 EXCLUS_PAR_DEFAUT = {
-    ".git", ".venv", ".venv-gateway", "__pycache__", "node_modules",
-    "var", "dist", "build", ".pytest_cache", ".mypy_cache",
+    ".git", ".venv", ".venv-gateway", ".venv-laya", "__pycache__",
+    "node_modules", "site-packages", "var", "dist", "build",
+    ".pytest_cache", ".mypy_cache",
 }
 
 MAX_OCTETS_PAR_DEFAUT = 200_000

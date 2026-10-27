@@ -65,8 +65,12 @@ class Settings(BaseSettings):
     max_tool_rounds: int = 2
     # Ollama : desactiver la phase de reflexion accelere fortement la decision.
     ollama_disable_thinking: bool = True
-    llm_timeout_seconds: float = 300.0
+    llm_timeout_seconds: float = 900.0
     synthesis_enabled: bool = True
+    # Budget de tokens de la reponse finale. 1200 coupait les documents longs
+    # en plein milieu, sans que l'utilisateur voie autre chose qu'une reponse
+    # qui s'arrete. La valeur reste surchargeable par la requete Open WebUI.
+    synthesis_max_tokens: int = 4096
 
     # --- Modele de decision Laya (planificateur) -----------------------------
     # Sidecar local lance par scripts/laya.sh. Laya choisit l'outil ; le modele
@@ -100,7 +104,7 @@ class Settings(BaseSettings):
     mcp_summarizer_url: str = "http://127.0.0.1:9101/mcp"
     mcp_codedoc_url: str = "http://127.0.0.1:9102/mcp"
     mcp_codedb_url: str = "http://127.0.0.1:9103/mcp"
-    mcp_timeout_seconds: float = 300.0
+    mcp_timeout_seconds: float = 1000.0
     mcp_discovery_timeout_seconds: float = 10.0
 
     # --- Authentification de demonstration ----------------------------------

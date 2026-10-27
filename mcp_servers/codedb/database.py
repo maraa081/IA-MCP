@@ -38,6 +38,16 @@ CREATE INDEX IF NOT EXISTS idx_code_langage ON code_entries(langage);
 CREATE INDEX IF NOT EXISTS idx_code_chemin  ON code_entries(chemin);
 """
 
+# Mots trop courants pour discriminer un fichier : les garder ferait echouer les
+# requetes en langage naturel ("documente moi le code du pipeline").
+MOTS_VIDES = {
+    "le", "la", "les", "un", "une", "des", "du", "de", "et", "ou", "en",
+    "au", "aux", "a", "pour", "sur", "dans", "avec", "ce", "cette", "ces",
+    "que", "qui", "quoi", "est", "sont", "il", "elle", "je", "tu", "nous",
+    "vous", "moi", "mon", "ma", "mes", "son", "sa", "ses", "the", "of",
+    "to", "in", "on", "for", "and", "or", "with", "an", "is", "are",
+}
+
 
 @dataclass(frozen=True)
 class CodeEntry:
@@ -194,32 +204,68 @@ class CodeDatabase:
     ) -> list[CodeEntry]:
         """Recherche simple sur le chemin, la description et le contenu.
 
+        La requete est decoupee en mots (les mots vides sont ignores) et le
+        resultat est CLASSE par nombre de mots trouves, au lieu d'exiger la
+        phrase exacte. Sans cela, "test pipeline" ne renvoyait rien alors que
+        les deux mots existent separement dans le code : le modele concluait a
+        tort que le fichier n'existait pas.
+
         Volontairement en LIKE plutot qu'en plein texte : c'est lisible, sans
         dependance, et suffisant a cette echelle. La montee en gamme naturelle
         est un index FTS5 (SQLite) ou un moteur de recherche dedie.
         """
         self.initialiser()
-        motif = f"%{requete}%"
+        mots = [
+            mot
+            for mot in (brut.strip(".,;:!?()[]{}\"'") for brut in requete.split())
+            if len(mot) > 1 and mot.lower() not in MOTS_VIDES
+        ]
+        if not mots:
+            return []
+
+        # Un fichier qui contient N mots de la requete est plus pertinent qu'un
+        # fichier qui n'en contient qu'un ; a egalite, le chemin gagne sur le
+        # contenu, puis le fichier le plus volumineux.
+        score = " + ".join(
+            "(CASE WHEN chemin LIKE ? OR description LIKE ? OR contenu LIKE ?"
+            " THEN 1 ELSE 0 END)"
+            for _ in mots
+        )
+        score_chemin = " + ".join(
+            "(CASE WHEN chemin LIKE ? THEN 1 ELSE 0 END)" for _ in mots
+        )
+
+        motifs = [f"%{mot}%" for mot in mots]
+        # Ordre des parametres = ordre des '?' dans le SQL : score, puis
+        # score_chemin, puis le filtre de langage, puis la limite.
+        params: list[object] = []
+        for motif in motifs:
+            params.extend([motif, motif, motif])
+        params.extend(motifs)
+
+        filtre_langage = ""
+        if langage:
+            filtre_langage = "WHERE langage = ?"
+            params.append(langage)
+
+        params.append(limite)
+
         with self.connecter() as connexion:
-            if langage:
-                lignes = connexion.execute(
-                    """
-                    SELECT * FROM code_entries
-                     WHERE langage = ?
-                       AND (chemin LIKE ? OR description LIKE ? OR contenu LIKE ?)
-                     ORDER BY (chemin LIKE ?) DESC, taille DESC LIMIT ?
-                    """,
-                    (langage, motif, motif, motif, motif, limite),
-                ).fetchall()
-            else:
-                lignes = connexion.execute(
-                    """
-                    SELECT * FROM code_entries
-                     WHERE chemin LIKE ? OR description LIKE ? OR contenu LIKE ?
-                     ORDER BY (chemin LIKE ?) DESC, taille DESC LIMIT ?
-                    """,
-                    (motif, motif, motif, motif, limite),
-                ).fetchall()
+            lignes = connexion.execute(
+                f"""
+                SELECT * FROM (
+                    SELECT *,
+                           ({score}) AS score,
+                           ({score_chemin}) AS score_chemin
+                      FROM code_entries
+                      {filtre_langage}
+                )
+                 WHERE score > 0
+                 ORDER BY score_chemin DESC, score DESC, taille DESC
+                 LIMIT ?
+                """,
+                params,
+            ).fetchall()
         return [_ligne_vers_entree(ligne) for ligne in lignes]
 
     def lire(self, reference: str | int) -> tuple[CodeEntry, str] | None:

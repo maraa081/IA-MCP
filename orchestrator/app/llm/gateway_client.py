@@ -43,6 +43,7 @@ class GatewayReply:
     content: str
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     latency_ms: int = 0
+    finish_reason: str = "stop"
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -107,6 +108,7 @@ class GatewayClient:
             content=(message.get("content") or "").strip(),
             tool_calls=self._extract_tool_calls(message),
             latency_ms=latency_ms,
+            finish_reason=str(choice.get("finish_reason") or "stop"),
             raw=body,
         )
 

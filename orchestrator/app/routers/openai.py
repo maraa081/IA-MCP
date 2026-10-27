@@ -207,6 +207,15 @@ async def chat_completions(
     # appel de modele inutile (le pipeline sait le faire, voir pipeline.py).
     synthese = True
 
+    # Budget de tokens demande par le client (Open WebUI l'envoie quand
+    # l'utilisateur regle la longueur de reponse). On le borne : trop bas, le
+    # document est coupe ; trop haut, le CPU n'a aucune chance de finir.
+    max_tokens_client = payload.get("max_tokens")
+    if isinstance(max_tokens_client, int) and max_tokens_client > 0:
+        max_tokens_client = max(256, min(max_tokens_client, 8192))
+    else:
+        max_tokens_client = None
+
     try:
         resultat = await services.pipeline.run(
             user=user,
@@ -214,6 +223,7 @@ async def chat_completions(
             synthesize=synthese,
             history=historique,
             allowed_tools=outils,
+            max_tokens=max_tokens_client,
         )
     except PolicyViolation as violation:
         return _erreur(
@@ -252,7 +262,7 @@ async def chat_completions(
                 {
                     "index": 0,
                     "message": message_reponse,
-                    "finish_reason": "stop",
+                    "finish_reason": resultat.finish_reason,
                 }
             ],
             "usage": {
@@ -300,7 +310,7 @@ async def chat_completions(
             "object": "chat.completion.chunk",
             "created": creation,
             "model": nom_modele,
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "choices": [{"index": 0, "delta": {}, "finish_reason": resultat.finish_reason}],
         }
         yield f"data: {json.dumps(fin, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"

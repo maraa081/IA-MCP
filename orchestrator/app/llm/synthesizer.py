@@ -34,8 +34,9 @@ SYNTHESIS_SYSTEM_PROMPT = (
 
 # Taille maximale d'un resultat d'outil transmis a la synthese. Au-dela, on
 # tronque : cela protege la fenetre de contexte du modele et evite de payer pour
-# du texte inutile.
-MAX_RESULT_CHARS = 6000
+# du texte inutile. 6000 caracteres coupaient une documentation technique au
+# milieu d'une section ; 24000 laissent passer un document entier.
+MAX_RESULT_CHARS = 24_000
 
 
 class Synthesizer:
@@ -53,8 +54,15 @@ class Synthesizer:
         denials: list[str],
         errors: list[str] | None = None,
         model: str | None = None,
-    ) -> str:
-        """Compose la reponse finale."""
+        max_tokens: int | None = None,
+    ) -> tuple[str, str]:
+        """Compose la reponse finale.
+
+        Retourne (texte, finish_reason). Le finish_reason est transmis tel quel a
+        Open WebUI : sans lui, une reponse coupee par le budget de tokens est
+        indiscernable d'une reponse complete, et l'utilisateur ne voit jamais la
+        fin de son document.
+        """
         prompt_parts = [f"Demande initiale de l'utilisateur :\n{user_message}"]
 
         if tool_results:
@@ -88,13 +96,15 @@ class Synthesizer:
                     {"role": "user", "content": "\n\n".join(prompt_parts)},
                 ],
                 temperature=0.3,
-                max_tokens=1200,
+                max_tokens=max_tokens or self._settings.synthesis_max_tokens,
             )
         except GatewayUnavailable as exc:
             # On ne veut jamais perdre le travail deja fait : on degrade
             # proprement en rendant les resultats bruts.
-            return f"[synthese indisponible : {exc}]\n\n" + json.dumps(
-                tool_results, ensure_ascii=False, indent=2
-            )[:MAX_RESULT_CHARS]
+            return (
+                f"[synthese indisponible : {exc}]\n\n"
+                + json.dumps(tool_results, ensure_ascii=False, indent=2)[:MAX_RESULT_CHARS],
+                "stop",
+            )
 
-        return reply.content
+        return reply.content, reply.finish_reason
