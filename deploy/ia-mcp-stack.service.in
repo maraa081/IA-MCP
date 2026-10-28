@@ -1,0 +1,25 @@
+[Unit]
+Description=Pile IA-MCP (LiteLLM, serveurs MCP, orchestrateur, Open WebUI)
+Documentation=file://@PROJECT_ROOT@/README.md
+# WSL2 + systemd : ce service demarre des que le systemd utilisateur demarre.
+# Docker Desktop peut arriver apres : scripts/start.sh attend le demon.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@PROJECT_ROOT@
+ExecStart=@PROJECT_ROOT@/scripts/start.sh --no-index
+ExecStop=@PROJECT_ROOT@/scripts/down.sh
+# Premier demarrage : migrations Prisma de LiteLLM + construction de l'image
+# de l'orchestrateur. Large, sinon systemd tue le demarrage en plein travail.
+TimeoutStartSec=900
+TimeoutStopSec=120
+# Un echec ne doit pas boucler : on relance a la main et doctor.sh explique.
+Restart=no
+StandardOutput=append:@PROJECT_ROOT@/var/logs/stack-boot.log
+StandardError=append:@PROJECT_ROOT@/var/logs/stack-boot.log
+
+[Install]
+WantedBy=default.target

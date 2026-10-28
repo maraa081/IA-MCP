@@ -103,6 +103,8 @@ dans [docs/installation.md](docs/installation.md). Equivalent non interactif :
 Les etapes separees restent disponibles si vous voulez faire la main :
 
 ```bash
+./scripts/start.sh         # COMMANDE UNIQUE : toute la pile + verification
+./scripts/status.sh        # tableau d'etat des services
 ./scripts/bootstrap.sh     # environnements Python, cles JWT, .env, modele Ollama
 ./scripts/up.sh            # Ollama, gateway, serveurs MCP, orchestrateur (conteneur)
 ./scripts/openwebui.sh up  # interface Open WebUI
@@ -111,6 +113,35 @@ Les etapes separees restent disponibles si vous voulez faire la main :
 ./scripts/doctor.sh        # diagnostic de la pile (--fix pour reparer)
 ./scripts/down.sh          # arret (--all pour arreter aussi Ollama)
 ```
+
+`start.sh` est idempotent : on peut le relancer autant de fois que voulu, y
+compris quand tout tourne deja. Il rend un code de sortie non nul si un service
+cle ne repond pas.
+
+### Apres un redemarrage du PC
+
+Les conteneurs (orchestrateur, Open WebUI, PostgreSQL) reviennent seuls
+(`restart: unless-stopped`), mais la gateway LiteLLM et les trois serveurs MCP
+sont des processus de l'hote : sans hook de boot, ils ne reviennent pas. Deux
+mecanismes, a installer une fois :
+
+```bash
+./scripts/install-autostart.sh --now    # service systemd utilisateur (WSL)
+```
+
+```powershell
+# Dans PowerShell (pas besoin d'administrateur) : lance WSL au login Windows
+powershell -ExecutionPolicy Bypass -File deploy\register-windows-autostart.ps1
+```
+
+WSL2 ne demarre pas au boot de Windows : le service systemd ne part qu'une fois
+WSL lance. La tache planifiee Windows comble ce trou. Si vous ne voulez que le
+systemd (WSL demarre a votre premiere ouverture de terminal), la premiere
+commande suffit.
+
+A chaque demarrage, `up.sh` nettoie aussi les fichiers PID perimes et verifie
+le port de chaque serveur MCP : demarrer un processus ne prouve pas qu'il a
+survecu.
 
 Ouvrir ensuite <http://localhost:3000>. L'API de l'orchestrateur n'est plus
 publiee sur la machine : `./scripts/prompt.sh` et `./scripts/test-infra.sh`

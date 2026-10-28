@@ -1,13 +1,16 @@
 # Raccourcis du labo. Toutes les cibles renvoient vers scripts/, qui contient la
 # logique : le Makefile n'est qu'une memoire de ce qui est possible.
-.PHONY: help bootstrap keys token up down demo test test-infra doctor logs audit clean
+.PHONY: help bootstrap keys token start up down status autostart demo test test-infra doctor logs audit clean
 
 help:
 	@echo "make bootstrap  Installation complete (venvs, cles, .env, modeles)"
 	@echo "make keys       Regenere la paire de cles JWT (invalide les jetons en cours)"
 	@echo "make token      Emet un jeton de test (ROLES=analyst SUB=demo)"
-	@echo "make up         Demarre la pile complete"
+	@echo "make start      Demarre TOUTE la pile (commande unique, idempotente)"
+	@echo "make status     Etat compact des services"
+	@echo "make up         Demarre la pile complete (sans Open WebUI)"
 	@echo "make down       Arrete la pile (ARGS=--all pour Ollama aussi)"
+	@echo "make autostart  Installe le demarrage automatique au boot"
 	@echo "make demo       Demonstration de bout en bout"
 	@echo "make test       Tests unitaires (pytest)"
 	@echo "make test-infra Verifie que la pile reelle fonctionne (ARGS=--full)"
@@ -26,9 +29,17 @@ ROLES ?= analyst
 token:
 	@./.venv/bin/python scripts/mint_token.py --sub $(SUB) --roles $(ROLES) --quiet
 
-up:
-	./scripts/up.sh
+start:
+	./scripts/start.sh $(ARGS)
 
+up:
+	./scripts/up.sh $(ARGS)
+
+status:
+	./scripts/status.sh
+
+autostart:
+	./scripts/install-autostart.sh $(ARGS)
 ARGS ?=
 down:
 	./scripts/down.sh $(ARGS)
