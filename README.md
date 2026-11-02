@@ -100,10 +100,16 @@ dans [docs/installation.md](docs/installation.md). Equivalent non interactif :
 ./install.sh --model qwen3.5:2b --yes   # PC sans GPU, 8 Go de RAM
 ```
 
+Une seule commande, depuis la racine du depot :
+
+```bash
+./start.sh                 # toute la pile + verification du registre MCP
+```
+
 Les etapes separees restent disponibles si vous voulez faire la main :
 
 ```bash
-./scripts/start.sh         # COMMANDE UNIQUE : toute la pile + verification
+./scripts/start.sh         # equivalent, utilisable depuis scripts/
 ./scripts/status.sh        # tableau d'etat des services
 ./scripts/bootstrap.sh     # environnements Python, cles JWT, .env, modele Ollama
 ./scripts/up.sh            # Ollama, gateway, serveurs MCP, orchestrateur (conteneur)
@@ -116,7 +122,15 @@ Les etapes separees restent disponibles si vous voulez faire la main :
 
 `start.sh` est idempotent : on peut le relancer autant de fois que voulu, y
 compris quand tout tourne deja. Il rend un code de sortie non nul si un service
-cle ne repond pas.
+cle ne repond pas, ou si l'orchestrateur ne voit aucun outil MCP.
+
+Pourquoi cette derniere verification : au redemarrage, le conteneur de
+l'orchestrateur repart avant les serveurs MCP (il porte
+`restart: unless-stopped`). Son registre d'outils etait alors construit une
+fois, vide, et ne se rafraichissait plus : Open WebUI n'avait aucun outil
+jusqu'au redemarrage manuel du conteneur. `start.sh` force desormais les
+serveurs MCP a repondre avant de considerer la pile prete, et signale
+explicitement un registre vide.
 
 ### Apres un redemarrage du PC
 

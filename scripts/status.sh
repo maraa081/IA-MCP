@@ -70,14 +70,32 @@ else
 fi
 
 # --- Orchestrateur (conteneur) ------------------------------------------------
+# /health repond 200 meme quand le registre MCP est vide : on lit donc
+# tools_known et l'etat de chaque serveur. Sans cela le tableau restait vert
+# alors qu'Open WebUI n'avait aucun outil a proposer.
 if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx orchestrator-lab; then
-  if docker exec orchestrator-lab python -c \
-      "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8090/health',timeout=3)" \
-      >/dev/null 2>&1; then
-    ligne ok "orchestrateur" "conteneur orchestrator-lab /health"
-  else
+  sante="$(docker exec orchestrator-lab python -c "
+import json, urllib.request
+try:
+    d = json.load(urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3))
+    ko = [n for n, ok in (d.get('mcp_servers') or {}).items() if not ok]
+    print('%s|%s' % (d.get('tools_known', 0), ','.join(ko)))
+except Exception:
+    print('')
+" 2>/dev/null || true)"
+  outils="${sante%%|*}"
+  absents="${sante#*|}"
+  if [[ -z "$sante" ]]; then
     ligne ko "orchestrateur" "conteneur actif mais /health muet"
     KO=1
+  elif [[ "$outils" =~ ^[0-9]+$ ]] && (( outils == 0 )); then
+    ligne ko "orchestrateur" "0 outil MCP${absents:+ (ko : $absents)} -> ./scripts/orchestrator.sh up"
+    KO=1
+  elif [[ -n "$absents" ]]; then
+    ligne ko "orchestrateur" "$outils outils MCP, serveur(s) ko : $absents"
+    KO=1
+  else
+    ligne ok "orchestrateur" "conteneur orchestrator-lab, $outils outils MCP"
   fi
 else
   ligne ko "orchestrateur" "conteneur orchestrator-lab arrete"

@@ -26,6 +26,30 @@ IP_FICHIER="$VAR_DIR/orchestrator-ip.txt"
 
 ip_wsl() { hostname -I | awk '{print $1}'; }
 
+# Nombre d'outils MCP connus, lu dans /health depuis l'interieur du conteneur.
+# -1 = orchestrateur muet, 0 = registre vide (serveurs MCP pas encore vus).
+outils_connus() {
+  docker exec "$CONTENEUR" python -c "
+import json, urllib.request
+try:
+    d = json.load(urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3))
+    print(d.get('tools_known', 0))
+except Exception:
+    print(-1)
+" 2>/dev/null || echo -1
+}
+
+# attendre_outils <secondes> : vrai des que le registre contient au moins un outil.
+attendre_outils() {
+  local limite="$1" i n
+  for ((i = 0; i < limite; i += 2)); do
+    n="$(outils_connus)"
+    [[ "$n" =~ ^[0-9]+$ ]] && (( n > 0 )) && return 0
+    sleep 2
+  done
+  return 1
+}
+
 reseau_pret() {
   docker network inspect "$RESEAU" >/dev/null 2>&1 \
     || docker network create "$RESEAU" >/dev/null
@@ -88,20 +112,25 @@ demarrer() {
 
   # Sante vue de l'interieur du conteneur : c'est exactement le chemin qu'utilise
   # Open WebUI. Un test depuis l'hote ne prouverait rien (pas de port publie).
-  for _ in $(seq 1 45); do
-    if docker exec "$CONTENEUR" python -c "
-import urllib.request, sys
-try:
-    urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)
-except Exception:
-    sys.exit(1)
-" >/dev/null 2>&1; then
-      echo "  [ok]   orchestrateur joignable sur $RESEAU:$CONTENEUR:8090"
-      return 0
-    fi
-    sleep 2
-  done
-  echo "  [ko]   orchestrateur pas pret : ./scripts/orchestrator.sh logs"
+  #
+  # On n'attend pas seulement /health : il repond 200 meme quand le registre
+  # d'outils est vide. C'est ce faux vert qui faisait croire a une pile saine
+  # alors que l'orchestrateur n'avait aucun outil MCP.
+  if attendre_outils 45; then
+    echo "  [ok]   orchestrateur joignable sur $RESEAU:$CONTENEUR:8090 ($(outils_connus) outils MCP)"
+    return 0
+  fi
+
+  # Cas du conteneur relance par Docker AVANT les serveurs MCP : son registre
+  # a ete construit trop tot et ne se rafraichit pas. Un redemarrage force le
+  # reinterrogation ; avec le code courant il attend ensuite les serveurs.
+  echo "  registre MCP vide : redemarrage du conteneur pour reinterroger les serveurs"
+  docker restart "$CONTENEUR" >/dev/null 2>&1 || true
+  if attendre_outils 60; then
+    echo "  [ok]   orchestrateur joignable sur $RESEAU:$CONTENEUR:8090 ($(outils_connus) outils MCP)"
+    return 0
+  fi
+  echo "  [ko]   orchestrateur sans outil MCP : ./scripts/orchestrator.sh logs"
   return 1
 }
 
